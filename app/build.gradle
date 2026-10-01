@@ -1,0 +1,149 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+def media3Version = '1.4.0'
+
+def useComposeBom = false
+def composeBom = '2025.08.00'
+def composeVersion = '1.7.5'
+def material3Version = '1.3.0'
+
+android {
+    namespace 'io.github.sunilxsk.lockperm'
+    compileSdk 36
+
+    def localProps = new Properties()
+    def lpFile = rootProject.file('local.properties')
+    if (lpFile.exists()) {
+        lpFile.withInputStream { localProps.load(it) }
+    }
+    def ndkLocation = localProps.getProperty('ndk.dir') ?:
+            "/data/data/com.termux/files/home/android-ndk-r29"
+    ndkPath ndkLocation
+    ndkVersion "29.0.14206865"
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+        }
+    }
+
+    defaultConfig {
+        applicationId "io.github.sunilxsk.lockperm"
+        minSdk 28
+        targetSdk 36
+        versionCode 420
+        versionName "4.2.0"
+        
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
+        }
+    }
+
+    def debugKeystore = new File(System.getProperty("user.home"), ".android/debug.keystore")
+
+    signingConfigs {
+        fallback {
+            if (debugKeystore.exists()) {
+                storeFile debugKeystore
+                storePassword "android"
+                keyAlias "androiddebugkey"
+                keyPassword "android"
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            debuggable false
+
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                          'proguard-rules.pro'
+
+            if (debugKeystore.exists()) {
+                signingConfig signingConfigs.fallback
+            }
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlin {
+        compilerOptions {
+            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+        }
+    }
+
+    buildFeatures {
+        compose true
+    }
+
+    packaging {
+        resources {
+            excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE', 'META-INF/LICENSE.txt',
+                         'META-INF/NOTICE', 'META-INF/NOTICE.txt', 'META-INF/*.kotlin_module',
+                         '/META-INF/{AL2.0,LGPL2.1}']
+        }
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+
+    androidResources {
+        noCompress 'list', 'prop'
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.activity:activity-compose:1.9.3'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7'
+
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+
+    if (useComposeBom) {
+        implementation platform("androidx.compose:compose-bom:${composeBom}")
+        implementation 'androidx.compose.ui:ui'
+        implementation 'androidx.compose.ui:ui-tooling-preview'
+        implementation 'androidx.compose.foundation:foundation'
+        implementation 'androidx.compose.material3:material3'
+        implementation 'androidx.compose.material:material-icons-extended'
+        debugImplementation 'androidx.compose.ui:ui-tooling'
+    } else {
+        implementation "androidx.compose.ui:ui:${composeVersion}"
+        implementation "androidx.compose.ui:ui-tooling-preview:${composeVersion}"
+        implementation "androidx.compose.foundation:foundation:${composeVersion}"
+        implementation "androidx.compose.material3:material3:${material3Version}"
+        implementation "androidx.compose.material:material-icons-extended:${composeVersion}"
+        debugImplementation "androidx.compose.ui:ui-tooling:${composeVersion}"
+    }
+
+    implementation "androidx.media3:media3-exoplayer:${media3Version}"
+    implementation "androidx.media3:media3-session:${media3Version}"
+    implementation "androidx.media3:media3-common:${media3Version}"
+    implementation "androidx.media3:media3-ui:${media3Version}"
+
+    implementation 'io.coil-kt:coil-compose:2.6.0'
+
+    compileOnly 'io.github.libxposed:api:101.0.1'
+    implementation 'io.github.libxposed:service:101.0.0'
+
+    testImplementation 'junit:junit:4.13.2'
+}

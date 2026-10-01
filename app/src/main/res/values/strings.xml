@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LockPerm</string>
+    <string name="module_disabled_icon">Module disabled icon</string>
+    <string name="module_description">（demo）</string>
+    <string name="description">😆</string>
+    <string name="module_desc">一个集身份伪装、权限伪造与全方位防护于一体的 Xposed 隐私模块。\n🍰🍰🍰</string>
+</resources>

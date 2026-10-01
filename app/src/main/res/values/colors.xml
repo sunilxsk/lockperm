@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_bg_shield">#FF12507A</color>
+    <color name="ic_bg_lock">#FF4A2F6B</color>
+    <color name="ic_bg_star">#FF7A4B12</color>
+    <color name="ic_bg_verified">#FF14563C</color>
+</resources>

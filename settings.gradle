@@ -1,0 +1,25 @@
+pluginManagement {
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.pkg.jetbrains.space/public/p/compose/dev' }
+        maven { url 'https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev' }
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.pkg.jetbrains.space/public/p/compose/dev' }
+        maven { url 'https://maven.pkg.jetbrains.space/kotlin/p/kotlin/dev' }
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "LockPerm"
+include ':app'
