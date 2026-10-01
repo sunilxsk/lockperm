@@ -1,0 +1,2 @@
+# lockperm
+LockPerm 是一个 Xposed 模块，可为每个应用独立配置设备伪装与权限防护。
