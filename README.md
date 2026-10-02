@@ -1,12 +1,8 @@
-<div align="center">
-  <img src="https://raw.githubusercontent.com/sunilxsk/lockperm/refs/heads/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="120">
-</div>
-
 # LockPerm
 
-一个基于 **libxposed API 101** 的 Xposed 模块，把「伪装」和「防护」两件事放在一起：伪装负责让应用看到你想让它看到的东西，防护负责阻止应用滥用权限。
+一个基于 **libxposed** 的 Xposed 模块，把「伪装」和「防护」两件事放在一起：伪装负责改变应用读到的内容，防护负责阻止应用滥用权限。
 
-所有功能都以**作用域为单位**生效：在「应用」页把目标应用加入作用域，再到「防护 / 伪装」两个页签里勾选它需要的功能即可。每个应用的配置互相独立，互不干扰。
+在「应用」页把目标应用加入作用域，再到「防护 / 伪装」两个页签里勾选它需要的功能即可。每个应用的配置互相独立，互不干扰。
 
 ---
 
@@ -16,29 +12,27 @@
 
 - **设备信息伪装**：Build 字段（MODEL / BRAND / FINGERPRINT / SERIAL / 系统版本等）一键随机或逐项填写
 - **标识伪装**：Android ID、GSF ID、广告 ID、App Set ID、DRM ID、OAID、Firebase ID
-- **系统属性伪装**：自定义 `getprop` / `SystemProperties` 返回值，自动展开 `ro.product.*` 系列变体
 - **硬件与内核**：内核版本、架构、CPU 信息、温度、电量
 - **网络与 SIM**：WiFi SSID / BSSID / MAC、蓝牙 MAC、IMEI / MEID / ICCID / IMSI、运营商、手机号
-- **系统环境**：时区、语言、时间偏移、开机时长、伪装开发者选项已关闭
-- **Root 伪装**：让应用以为设备已 Root（su 文件存在、命令返回成功）
+- **系统环境**：时区、语言、开机时长、伪装开发者选项已关闭
+- **Root 伪装**：让应用以为设备已 Root
 - **VPN / 代理隐藏**：隐藏 VPN 网卡、传输能力、NetworkInfo、HTTP 代理
 - **WiFi 连接状态伪装**：断网时让应用以为已连上 WiFi，可自定义扫描到的热点列表
-- **WebView 注入**：向目标应用的 WebView 注入 JavaScript
 - **User-Agent 伪装**：按预设随机生成或手动填写 UA
 - **权限伪装**：让应用以为你授予了权限，部分权限可返回伪造数据（通讯录、短信、通话记录、存储、位置、日历）
 
 ### 防护
 
 - **无障碍防护**：禁止开启无障碍服务，并破坏其读取屏幕、监听通知、模拟操作、按键监听等能力
-- **设备管理员防护**：阻止应用滥用设备管理员 / Device Owner 权限，可开启「全部合一」持续解除身份
+- **设备管理员防护**：阻止应用滥用设备管理员 / Device Owner 权限
 - **悬浮窗拦截**：阻止系统级悬浮窗创建
 - **壁纸拦截**：阻止应用随意替换壁纸
 - **音量控制拦截 / 固定音量**：阻止应用调节音量，或把音量锁定在指定值
-- **音频输出拦截**：按声音类别（媒体 / 通话 / 铃声 / 通知 / 闹钟 / 系统 / TTS）禁用音频输出
+- **音频输出拦截**：按声音类别
 - **剪贴板拦截**：禁止读写剪贴板（可分别控制读 / 写）
 - **闪光灯 / 振动拦截**
 - **WiFi / 蓝牙 / 亮度控制拦截**
-- **传感器拦截**：注册不了监听，列表为空，默认传感器为 null
+- **传感器拦截**：列表为空
 - **跳转拦截**：阻止应用跳转到其他应用，支持白名单
 - **摄像头 / 麦克风实时拦截**：即使应用已拿到权限也打不开硬件
 - **安装拦截**：阻止静默安装 / 引导安装 APK
@@ -49,9 +43,9 @@
 - **文件创建拦截**：拦截 MediaStore 与 File / NIO 的创建、写入、删除等操作
 - **隐藏应用列表**：让应用枚举不到你装了哪些软件，支持白名单 / 黑名单
 - **无线调试拦截**：堵死 ADB over Wi-Fi 的各种入口
-- **Shizuku 拦截**：阻止向 Shizuku 申请授权并破坏已授权后的调用
-- **命令执行拦截**：拦截 Runtime.exec / ProcessBuilder / ProcessImpl
-- **退出功能**：倒计时后按指定方式退出（杀进程 / 结束虚拟机 / SIGKILL / 空指针闪退 / 执行命令等）
+- **Shizuku 拦截**：阻止向 Shizuku 申请授权并禁用已授权后的调用
+- **命令执行拦截**：拦截执行命令
+- **退出功能**：倒计时后按指定方式退出
 - **阻止闪退 / 自杀**：拦截应用主动调用 killProcess / exit / halt / 信号等行为，可调强度等级
 - **异常捕获器**：记录崩溃信息到剪贴板或私有目录，可选拦截应用抛出的异常
 - **隐藏路径 / 文件**：让目标应用用任何方式都探测不到指定路径
@@ -141,7 +135,3 @@ cd LockPerm
 - [Material Icons Extended](https://github.com/google/material-design-icons) — Apache-2.0
 - [kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) — Apache-2.0
 - [Coil](https://github.com/coil-kt/coil) — Apache-2.0
-
----
-
-项目地址：[https://github.com/sunilxsk/LockPerm](https://github.com/sunilxsk/LockPerm)
