@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="https://raw.githubusercontent.com/sunilxsk/lockperm/refs/heads/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="120">
+</div>
+
 # LockPerm
 
 一个基于 **libxposed API 101** 的 Xposed 模块，把「伪装」和「防护」两件事放在一起：伪装负责让应用看到你想让它看到的东西，防护负责阻止应用滥用权限。
