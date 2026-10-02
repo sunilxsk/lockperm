@@ -34,7 +34,7 @@ internal class ExtraIdentity(
         hookTelephony()
         hookTimezone(cfg.exTimezone)
         hookLocaleAll(cfg.exLocale)
-        if (cfg.exTimeEnable && cfg.exTimeOffset != 0) hookTimeOffset(cfg.exTimeOffset)
+        if (cfg.exTimeEnable && cfg.exTimeOffset != 0) hookSystemTime(cfg.exTimeOffset)
         if (cfg.exUptimeEnable) hookUptime(cfg.exUptimeHours)
         hookAndroidVersion(cfg)
         hookMac(cfg.exWifiMac, cfg.exBtMac)
@@ -324,23 +324,122 @@ internal class ExtraIdentity(
 
     
 
-    private fun hookTimeOffset(minutes: Int) {
-        val sys = loadClassAnywhere("java.lang.System") ?: return
+    
+
+
+
+
+
+
+    private fun hookSystemTime(minutes: Int) {
         val delta = minutes * 60_000L
+        if (delta == 0L) return
+
         runCatching {
-            sys.getDeclaredMethod("currentTimeMillis").let { m ->
+            val sys = loadClassAnywhere("java.lang.System") ?: return@runCatching
+            sys.declaredMethods.filter { it.name == "currentTimeMillis" }.forEach { m ->
                 hookMethod(m) { chain ->
-                    val t = chain.proceed() as? Long
-                    if (t == null) t else t + delta
+                    val t = chain.proceed() as? Long ?: return@hookMethod chain.proceed()
+                    t + delta
                 }
             }
         }
-        logInfo("time offset hooked -> ${minutes}min")
+
+        
+        runCatching {
+            val inst = loadClassAnywhere("java.time.Instant") ?: return@runCatching
+            inst.declaredMethods.filter {
+                it.name == "now" && it.parameterTypes.isEmpty() &&
+                        it.returnType.name == "java.time.Instant"
+            }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val r = chain.proceed()
+                    if (r == null) return@hookMethod null
+                    runCatching {
+                        val plus = r.javaClass.getMethod("plusMillis", Long::class.javaPrimitiveType)
+                        plus.invoke(r, delta)
+                    }.getOrNull() ?: r
+                }
+            }
+        }
+
+        
+        runCatching {
+            val clock = loadClassAnywhere("java.time.Clock") ?: return@runCatching
+            clock.declaredMethods.filter { it.name == "millis" }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val t = chain.proceed() as? Long ?: return@hookMethod chain.proceed()
+                    t + delta
+                }
+            }
+            clock.declaredMethods.filter { it.name == "instant" }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val r = chain.proceed() ?: return@hookMethod null
+                    runCatching {
+                        val plus = r.javaClass.getMethod("plusMillis", Long::class.javaPrimitiveType)
+                        plus.invoke(r, delta)
+                    }.getOrNull() ?: r
+                }
+            }
+        }
+
+        
+        runCatching {
+            val date = loadClassAnywhere("java.util.Date") ?: return@runCatching
+            date.declaredConstructors.filter { it.parameterTypes.isEmpty() }.forEach { c ->
+                hookCtor(c) { chain ->
+                    val r = chain.proceed() ?: return@hookCtor null
+                    runCatching {
+                        val sm = r.javaClass.getMethod("setTime", Long::class.javaPrimitiveType)
+                        sm.invoke(r, System.currentTimeMillis() + delta)
+                    }
+                    r
+                }
+            }
+        }
+        runCatching {
+            val cal = loadClassAnywhere("java.util.Calendar") ?: return@runCatching
+            cal.declaredMethods.filter {
+                it.name == "getInstance" && it.parameterTypes.isEmpty()
+            }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val r = chain.proceed() ?: return@hookMethod null
+                    runCatching {
+                        val sm = r.javaClass.getMethod("setTimeInMillis", Long::class.javaPrimitiveType)
+                        sm.invoke(r, System.currentTimeMillis() + delta)
+                    }
+                    r
+                }
+            }
+        }
+
+        
+        runCatching {
+            val os = loadClassAnywhere("android.system.Os") ?: return@runCatching
+            os.declaredMethods.filter { it.name == "clock_gettime" }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val r = chain.proceed() ?: return@hookMethod null
+                    val which = chain.getArg(0) as? Int
+                    if (which != null && which != 0) return@hookMethod r  
+                    runCatching {
+                        val f = r.javaClass.getDeclaredField("tv_sec")
+                        f.isAccessible = true
+                        f.set(r, (f.get(r) as? Long ?: 0L) + delta / 1000L)
+                    }
+                    r
+                }
+            }
+        }
+
+        logInfo("system time hooked -> ${minutes}min")
     }
 
     
 
     
+
+
+
 
 
 
@@ -357,30 +456,150 @@ internal class ExtraIdentity(
         val shift = { real: Long -> uptimeTarget + (real - uptimeBaseReal) }
 
         val sc = loadClassAnywhere("android.os.SystemClock") ?: return
-        runCatching {
-            sc.getDeclaredMethod("uptimeMillis").let { m ->
-                hookMethod(m) { chain ->
-                    val r = chain.proceed() as? Long ?: return@hookMethod null
-                    shift(r)
+        setOf("uptimeMillis", "elapsedRealtime").forEach { name ->
+            runCatching {
+                sc.declaredMethods.filter {
+                    it.name == name && it.parameterTypes.isEmpty()
+                }.forEach { m ->
+                    hookMethod(m) { chain ->
+                        val r = chain.proceed() as? Long ?: return@hookMethod chain.proceed()
+                        shift(r)
+                    }
                 }
             }
         }
         runCatching {
-            sc.getDeclaredMethod("elapsedRealtime").let { m ->
+            sc.declaredMethods.filter {
+                it.name == "elapsedRealtimeNanos" && it.parameterTypes.isEmpty()
+            }.forEach { m ->
                 hookMethod(m) { chain ->
-                    val r = chain.proceed() as? Long ?: return@hookMethod null
-                    shift(r)
-                }
-            }
-        }
-        runCatching {
-            sc.getDeclaredMethod("elapsedRealtimeNanos").let { m ->
-                hookMethod(m) { chain ->
-                    val r = chain.proceed() as? Long ?: return@hookMethod null
+                    val r = chain.proceed() as? Long ?: return@hookMethod chain.proceed()
                     shift(r) * 1_000_000L
                 }
             }
         }
+
+        runCatching {
+            val sys = loadClassAnywhere("java.lang.System") ?: return@runCatching
+            sys.declaredMethods.filter { it.name == "nanoTime" }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val r = chain.proceed() as? Long ?: return@hookMethod chain.proceed()
+                    shift(r / 1_000_000L) * 1_000_000L
+                }
+            }
+        }
+
+        runCatching {
+            val os = loadClassAnywhere("android.system.Os") ?: return@runCatching
+            os.declaredMethods.filter { it.name == "clock_gettime" }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val r = chain.proceed() ?: return@hookMethod null
+                    val which = chain.getArg(0) as? Int ?: return@hookMethod r
+                    
+                    if (which == 0) return@hookMethod r
+                    runCatching {
+                        val f = r.javaClass.getDeclaredField("tv_sec")
+                        f.isAccessible = true
+                        val sec = f.get(r) as? Long ?: 0L
+                        f.set(r, shift(sec * 1000L) / 1000L)
+                    }
+                    r
+                }
+            }
+        }
+    }
+
+    
+
+    
+
+
+
+
+
+
+    private fun hookCpuInfoReaders(content: String) {
+        if (content.isEmpty()) return
+
+        val cores = Regex("^processor\\s*:", RegexOption.MULTILINE)
+            .findAll(content).count().takeIf { it > 0 }
+
+        
+        if (cores != null) {
+            runCatching {
+                val rt = loadClassAnywhere("java.lang.Runtime") ?: return@runCatching
+                rt.declaredMethods.filter {
+                    it.name == "availableProcessors" && it.parameterTypes.isEmpty()
+                }.forEach { m -> hookMethod(m) { _ -> cores } }
+            }
+        }
+
+        
+        
+        val mirror = materialize("cpuinfo", content)
+        if (mirror != null) {
+            runCatching {
+                val fis = loadClassAnywhere("java.io.FileInputStream") ?: return@runCatching
+                fis.declaredConstructors.filter {
+                    it.parameterTypes.size == 1 && it.parameterTypes[0] == String::class.java
+                }.forEach { c ->
+                    hookCtor(c) { chain ->
+                        if (chain.getArg(0) as? String == "/proc/cpuinfo") {
+                            chain.proceed(arrayOf<Any?>(mirror))
+                        } else {
+                            chain.proceed()
+                        }
+                    }
+                }
+            }
+            runCatching {
+                val fr = loadClassAnywhere("java.io.FileReader") ?: return@runCatching
+                fr.declaredConstructors.filter {
+                    it.parameterTypes.size == 1 && it.parameterTypes[0] == String::class.java
+                }.forEach { c ->
+                    hookCtor(c) { chain ->
+                        if (chain.getArg(0) as? String == "/proc/cpuinfo") {
+                            chain.proceed(arrayOf<Any?>(mirror))
+                        } else {
+                            chain.proceed()
+                        }
+                    }
+                }
+            }
+        }
+
+        
+        val cfg = snapshot()
+        val b = loadClassAnywhere("android.os.Build") ?: return
+        val preset = if (cfg.exCpuMode == XpConfig.CPU_MODE_PRESET) {
+            XpConfig.CPU_PRESETS.getOrNull(cfg.exCpuPreset)
+        } else {
+            null
+        }
+        val hw = preset?.soc ?: FakeProps.cpuHardware(cfg)
+        if (hw.isNotEmpty()) {
+            setStaticString(b, "HARDWARE", hw)
+            runCatching { setStaticString(b, "SOC_MODEL", hw) }
+            runCatching { setStaticString(b, "SOC_MANUFACTURER", XpConfig.socVendor(hw)) }
+            runCatching { setStaticString(b, "SOC_DEVICE", hw) }
+        }
+        preset?.let { setStaticString(b, "BOARD", it.board) }
+        logInfo("cpu spoofer installed (cores=$cores hw=$hw)")
+    }
+
+    
+
+
+
+    private fun materialize(name: String, content: String): String? {
+        return runCatching {
+            val ctx = appContext() ?: return@runCatching null
+            val dir = ctx.cacheDir ?: return@runCatching null
+            if (!dir.exists()) dir.mkdirs()
+            val f = java.io.File(dir, ".$name")
+            f.writeText(content)
+            f.absolutePath
+        }.onFailure { logWarn("materialize $name failed: ${it.message}") }.getOrNull()
     }
 
     
@@ -438,9 +657,9 @@ internal class ExtraIdentity(
         val kernel = FakeProps.kernelVersion(cfg)
         val arch = FakeProps.arch(cfg)
         FakeFiles.version = FakeProps.procVersion(cfg)
-        if (cfg.exCpuInfoHw.isNotEmpty() || cfg.buildValues["SOC_MODEL"] != null) {
-            FakeFiles.cpuinfo = FakeProps.cpuInfo(cfg)
-        }
+        val cpuContent = FakeProps.cpuInfo(cfg)
+        if (cpuContent.isNotEmpty()) FakeFiles.cpuinfo = cpuContent
+        if (cfg.exCpuEnable) hookCpuInfoReaders(cpuContent)
 
         
         
@@ -537,26 +756,69 @@ internal class ExtraIdentity(
     }
 
     
+
+
+
+
+
+
+
+
+
+
+
     private val OAID_CLASSES = listOf(
+        
         "com.android.creator.IdsSupplier",
+        "com.android.creator.IdsSupplierImpl",
         "com.android.creator.OaidHelper",
         "com.bun.lib.MsaIdInterface",
+        "com.bun.lib.MsaIdInterfaceImpl",
         "com.bun.miitmdid.core.MdidSdkHelper",
         "com.bun.miitmdid.core.OaidHelper",
-        "com.bun.miitmdid.a",
-        "com.bun.miitmdid.b",
-        "com.bun.miitmdid.c",
+        "com.bun.miitmdid.core.JLibrary",
+        "com.bun.miitmdid.interfaces.IIdSupplier",
+        "com.bun.miitmdid.interfaces.ISupplier",
+        "com.bun.miitmdid.supplier.IdSupplier",
+        
+        "com.github.gzuliyujiang.oaid.DeviceID",
+        "com.github.gzuliyujiang.oaid.DeviceIdentifier",
+        "com.github.gzuliyujiang.oaid.impl.OAIDImpl",
+        
+        "com.huawei.hms.ads.identifier.AdvertisingIdClient",
+        "com.huawei.hms.ads.identifier.AdvertisingIdClient\$Info",
+        "com.huawei.hms.ads.AdvertisingIdClient",
+        "com.huawei.hms.ads.identifier.internal.AdvertisingIdClient",
+        
         "com.zui.deviceidservice.DeviceIdManager",
         "com.heytap.openid.OpenIDManager",
+        "com.samsung.android.deviceidservice.DeviceIdManager",
+        "com.vivo.identifier.IdentifierManager",
+        "com.android.id.impl.IdProviderImpl",
+    )
+
+    
+    private val OAID_INFO_CLASSES = listOf(
+        "com.huawei.hms.ads.identifier.AdvertisingIdClient\$Info",
+        "com.huawei.hms.ads.identifier.AdvertisingIdInfo",
+        "com.huawei.hms.ads.identifier.AdvertisingIdClient\$AdvertisingIdInfo",
     )
 
     private val OAID_GETTERS = setOf(
-        "getOAID", "getOaid", "getOAIDSync", "getOaidSync",
-        "getVAID", "getAAID", "getUDID", "getId", "getOpenId", "getOUID",
+        "getOAID", "getOaid", "getOAIDSync", "getOaidSync", "getOaidSync",
+        "getVAID", "getVaid", "getAAID", "getAaid", "getUDID", "getUdid",
+        "getId", "getOpenId", "getOUID", "getOuid", "getDeviceId",
+        "getAdvertisingId", "getAdvertisingIdInfo",
+    )
+
+    private val OAID_SUPPORT = setOf(
+        "isSupported", "isSupport", "supported", "isOaidSupported",
+        "isLimitAdTrackingEnabled", "getLimitAdTrackingEnabled", "isLAT",
     )
 
     private fun hookOaid(oaid: String) {
         var n = 0
+
         OAID_CLASSES.forEach { name ->
             val c = cls(name) ?: return@forEach
             c.declaredMethods.forEach { m ->
@@ -565,13 +827,27 @@ internal class ExtraIdentity(
                         if (hookMethod(m) { _ -> oaid }) n++
                     }
 
-                    (m.name == "isSupported" || m.name == "isSupport" || m.name == "supported") &&
-                            m.returnType == java.lang.Boolean.TYPE -> {
-                        if (hookMethod(m) { _ -> true }) n++
+                    m.name in OAID_SUPPORT && m.returnType == java.lang.Boolean.TYPE -> {
+                        
+                        
+                        val v = m.name !in setOf(
+                            "isLimitAdTrackingEnabled", "getLimitAdTrackingEnabled", "isLAT"
+                        )
+                        if (hookMethod(m) { _ -> v }) n++
                     }
                 }
             }
         }
+
+        
+        OAID_INFO_CLASSES.forEach { name ->
+            val c = cls(name) ?: return@forEach
+            c.declaredMethods.filter {
+                it.name in setOf("getId", "getOAID", "getAdvertisingId") &&
+                        it.returnType == String::class.java
+            }.forEach { m -> if (hookMethod(m) { _ -> oaid }) n++ }
+        }
+
         logInfo("oaid hooked ($n methods)")
     }
 

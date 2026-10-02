@@ -7,7 +7,7 @@ internal val DEFAULT_JS = """
 
     const banner = document.createElement('div');
     banner.id = 'colorful-banner-123456789';
-    banner.textContent = '你好你好你好，这是 LockPerm 的模块 ';
+    banner.textContent = 'LockPerm 已注入此页面';
     if (!document.getElementById('colorful-banner-style-123456789')) {
         const style = document.createElement('style');
         style.id = 'colorful-banner-style-123456789';

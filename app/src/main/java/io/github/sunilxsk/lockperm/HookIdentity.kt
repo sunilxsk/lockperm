@@ -282,6 +282,12 @@ internal class HookIdentity(
     }
 
     
+    
+
+
+
+
+
     private fun hookSystemProperties() {
         val sp = runCatching { Class.forName("android.os.SystemProperties") }.getOrNull()
             ?: cls("android.os.SystemProperties")
@@ -292,17 +298,10 @@ internal class HookIdentity(
         if (want.isEmpty()) return
 
         var n = 0
+
         sp.declaredMethods.filter { it.name == "get" }.forEach { m ->
             when (m.parameterTypes.size) {
-                1 -> {
-                    hookMethod(m) { chain ->
-                        val key = chain.getArg(0) as? String
-                        val v = want[key]
-                        if (v != null) v else chain.proceed()
-                    }
-                    n++
-                }
-                2 -> {
+                1, 2 -> {
                     hookMethod(m) { chain ->
                         val key = chain.getArg(0) as? String
                         val v = want[key]
@@ -312,7 +311,30 @@ internal class HookIdentity(
                 }
             }
         }
-        if (n > 0) logInfo("build fields: hooked SystemProperties.get x$n")
+
+        
+        val typed = mapOf(
+            "getInt" to 1, "getLong" to 2, "getBoolean" to 3,
+        )
+        sp.declaredMethods.filter { it.name in typed.keys }.forEach { m ->
+            val kind = typed[m.name] ?: return@forEach
+            hookMethod(m) { chain ->
+                val key = chain.getArg(0) as? String
+                val v = want[key] ?: return@hookMethod chain.proceed()
+                when (kind) {
+                    1 -> v.toIntOrNull()
+                    2 -> v.toLongOrNull()
+                    else -> when (v.trim().lowercase()) {
+                        "true", "1", "yes", "y", "on" -> true
+                        "false", "0", "no", "n", "off" -> false
+                        else -> null
+                    }
+                } ?: chain.proceed()
+            }
+            n++
+        }
+
+        if (n > 0) logInfo("system properties hooked x$n")
     }
 
     
@@ -378,15 +400,74 @@ internal class HookIdentity(
 
     
 
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
     private fun hookUserAgent() {
+        val ua = snapshot().uaValue.trim()
+        if (ua.isEmpty()) return
+
+        val ws = cls("android.webkit.WebSettings")
+            ?: runCatching { Class.forName("android.webkit.WebSettings") }.getOrNull()
+            ?: return
+
         runCatching {
-            val ws = cls("android.webkit.WebSettings") ?: return
-            val getter = ws.getDeclaredMethod("getUserAgentString")
-            hookMethod(getter) { chain ->
-                val ua = snapshot().uaValue.trim()
-                if (ua.isNotEmpty()) ua else chain.proceed()
-            }
-            logInfo("user-agent hook installed")
+            ws.declaredMethods.filter {
+                it.name == "getDefaultUserAgent" && it.parameterTypes.size == 1
+            }.forEach { m -> hookMethod(m) { _ -> ua } }
         }
+        runCatching {
+            ws.declaredMethods.filter {
+                it.name == "getUserAgentString" && it.parameterTypes.isEmpty()
+            }.forEach { m -> hookMethod(m) { _ -> ua } }
+        }
+        runCatching {
+            ws.declaredMethods.filter {
+                it.name == "setUserAgentString" && it.parameterTypes.size == 1 &&
+                        it.parameterTypes[0] == String::class.java
+            }.forEach { m ->
+                hookMethod(m) { chain ->
+                    
+                    if (chain.getArg(0) as? String == ua) chain.proceed() else null
+                }
+            }
+        }
+
+        
+        runCatching {
+            val wv = cls("android.webkit.WebView")
+                ?: runCatching { Class.forName("android.webkit.WebView") }.getOrNull()
+                ?: return@runCatching
+            val apply: (Any?) -> Unit = { self ->
+                if (self != null) {
+                    runCatching {
+                        val g = self.javaClass.getMethod("getSettings")
+                        val s = g.invoke(self)
+                        val su = s?.javaClass?.getMethod("setUserAgentString", String::class.java)
+                        su?.invoke(s, ua)
+                    }
+                }
+            }
+            wv.declaredConstructors.forEach { c ->
+                hookCtor(c) { chain ->
+                    val r = chain.proceed()
+                    runCatching { apply(r) }
+                    r
+                }
+            }
+        }
+
+        logInfo("user-agent hooked -> $ua")
     }
 }

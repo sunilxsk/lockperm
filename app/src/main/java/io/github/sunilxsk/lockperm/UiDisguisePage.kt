@@ -69,7 +69,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
         val androidIdOn = cfg.bool(XpConfig.KEY_ENABLE_ANDROID_ID, false)
         FeatureCard(
             title = "伪装设备信息（Build 字段）",
-            subtitle = "MODEL / BRAND / FINGERPRINT / SERIAL / 系统版本 / GSF / 广告 ID …… 留空表示不修改",
             checked = buildOn,
             onCheckedChange = { cfg.put(XpConfig.KEY_ENABLE_BUILD, it) }
         ) {
@@ -139,7 +138,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
             )
             SwitchRow(
                 title = "修改 Android_ID",
-                subtitle = "Hook Settings.Secure.getString，替换 android_id 返回值",
                 checked = cfg.bool(XpConfig.KEY_ENABLE_ANDROID_ID, false),
                 enabled = buildOn,
                 onCheckedChange = { cfg.put(XpConfig.KEY_ENABLE_ANDROID_ID, it) },
@@ -281,16 +279,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
                     modifier = Modifier.weight(1f),
                 )
             }
-            HintText(
-                if (curSdk <= 0) {
-                    "当前：不修改 Android 版本。想自定义就在上面两个框里直接填，" +
-                            "例如版本填 14、SDK 填 34，两个都填才会一起生效。"
-                } else {
-                    "当前：Android ${curRelease.ifEmpty { XpConfig.releaseFor(curSdk) }} / SDK $curSdk。" +
-                            "填了其中一个，另一个会自动补成对应的值；两个都填则以你填的为准。" +
-                            "伪装成比自己设备更高的版本时，有的应用会按新版本走代码路径导致闪退。"
-                }
-            )
 
             HorizontalDividerCompat()
             Text(
@@ -306,51 +294,86 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
                     enabled = buildOn,
                 )
             }
+
+            HorizontalDividerCompat()
+            Text(
+                "CPU 伪装",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            val cpuOn = cfg.bool(XpConfig.KEY_FAKE_CPU_ENABLE, false)
+            SwitchRow(
+                title = "伪装 /proc/cpuinfo 与 CPU 信息",
+                checked = cpuOn,
+                enabled = buildOn,
+                onCheckedChange = { cfg.put(XpConfig.KEY_FAKE_CPU_ENABLE, it) },
+            )
+            val cpuMode = cfg.str(XpConfig.KEY_FAKE_CPU_MODE, XpConfig.CPU_MODE_PRESET)
+            SingleSelectChips(
+                options = listOf("预设", "自定义"),
+                selectedIndex = if (cpuMode == XpConfig.CPU_MODE_CUSTOM) 1 else 0,
+                onSelect = { cfg.put(XpConfig.KEY_FAKE_CPU_MODE, if (it == 1) XpConfig.CPU_MODE_CUSTOM else XpConfig.CPU_MODE_PRESET) },
+                enabled = buildOn && cpuOn,
+            )
+            if (cpuMode == XpConfig.CPU_MODE_CUSTOM) {
+                LabeledTextField(
+                    label = "/proc/cpuinfo 完整内容",
+                    value = cfg.str(XpConfig.KEY_FAKE_CPU_CUSTOM, ""),
+                    onValueChange = { cfg.put(XpConfig.KEY_FAKE_CPU_CUSTOM, it) },
+                    enabled = buildOn && cpuOn,
+                    singleLine = false,
+                    maxLines = 12,
+                )
+                HintText("填写后完全替换 /proc/cpuinfo 的内容，包含 Java 读取、cat 命令与原生层。")
+            } else {
+                SingleSelectChips(
+                    options = XpConfig.cpuPresetNames(),
+                    selectedIndex = cfg.int(XpConfig.KEY_FAKE_CPU_PRESET, 0)
+                        .coerceIn(0, XpConfig.CPU_PRESETS.lastIndex),
+                    onSelect = { cfg.put(XpConfig.KEY_FAKE_CPU_PRESET, it) },
+                    enabled = buildOn && cpuOn,
+                )
+                LabeledTextField(
+                    label = "核心数",
+                    value = cfg.int(XpConfig.KEY_FAKE_CPU_CORES, 8).toString(),
+                    onValueChange = { raw ->
+                        val v = raw.filter { it.isDigit() }.take(2).toIntOrNull() ?: 8
+                        cfg.put(XpConfig.KEY_FAKE_CPU_CORES, v.coerceIn(1, 32))
+                    },
+                    enabled = buildOn && cpuOn,
+                )
+            }
             SwitchRow(
                 title = "伪装设备温度",
-                subtitle = "/sys/class/thermal 与 BatteryManager 读数一起改",
                 checked = cfg.bool(XpConfig.KEY_FAKE_TEMP_ENABLE, false),
                 enabled = buildOn,
                 onCheckedChange = { cfg.put(XpConfig.KEY_FAKE_TEMP_ENABLE, it) },
             )
             SwitchRow(
                 title = "伪装电量",
-                subtitle = "BatteryManager 与电池广播的 level / scale",
                 checked = cfg.bool(XpConfig.KEY_FAKE_BATTERY_ENABLE, false),
                 enabled = buildOn,
                 onCheckedChange = { cfg.put(XpConfig.KEY_FAKE_BATTERY_ENABLE, it) },
             )
-            HintText(
-                "内核版本同时改 System.getProperty(os.version)、/proc/version 和 shell 的 uname；" +
-                        "架构改 os.arch 与 uname -m。GPU 改的是 GLES 的 GL_RENDERER，" +
-                        "一键随机时会跟着芯片型号走。"
-            )
             SwitchRow(
                 title = "伪装开发者选项已关闭",
-                subtitle = "Settings.Global / Secure 里 development_settings_enabled、adb_enabled 一律返回 0",
                 checked = cfg.bool(XpConfig.KEY_FAKE_DEV_OFF, false),
                 enabled = buildOn,
                 onCheckedChange = { cfg.put(XpConfig.KEY_FAKE_DEV_OFF, it) },
             )
             SwitchRow(
-                title = "启用系统时间偏移",
-                subtitle = "System.currentTimeMillis() 整体加上上面的分钟数（可填负数）",
+                title = "伪装获取系统时间",
                 checked = cfg.bool(XpConfig.KEY_FAKE_TIME_ENABLE, false),
                 enabled = buildOn,
                 onCheckedChange = { cfg.put(XpConfig.KEY_FAKE_TIME_ENABLE, it) },
             )
             SwitchRow(
                 title = "伪装设备已运行时间",
-                subtitle = "SystemClock.uptimeMillis / elapsedRealtime 按上面的小时数上报，且会继续往前走",
                 checked = cfg.bool(XpConfig.KEY_FAKE_UPTIME_ENABLE, false),
                 enabled = buildOn,
                 onCheckedChange = { cfg.put(XpConfig.KEY_FAKE_UPTIME_ENABLE, it) },
             )
-            HintText(
-                "⚠️ Android SDK 版本填比自己设备更高的值时要小心：" +
-                        "有的应用会按高版本走新代码路径，可能直接闪退。" +
-                        "另外部分 ROM 的 ART 会把 SDK_INT 内联进应用，改了也不一定生效。"
-            )
+            HintText("低版本伪装为高版本可能会闪退。")
 
             HorizontalDividerCompat()
             Text(
@@ -381,7 +404,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
             )
             SwitchRow(
                 title = "隐藏账号与邮箱",
-                subtitle = "AccountManager 返回账号的方法一律给空数组，hasAccount 返回 false",
                 checked = cfg.bool(XpConfig.KEY_HIDE_ACCOUNTS, false),
                 enabled = buildOn,
                 onCheckedChange = { cfg.put(XpConfig.KEY_HIDE_ACCOUNTS, it) },
@@ -395,7 +417,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
         
         FeatureCard(
             title = "注入 WebView JavaScript",
-            subtitle = "Hook WebViewClient.onPageFinished 和 WebView.loadUrl",
             checked = cfg.bool(XpConfig.KEY_ENABLE_JS, false),
             onCheckedChange = { cfg.put(XpConfig.KEY_ENABLE_JS, it) }
         ) {
@@ -435,7 +456,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
         
         FeatureCard(
             title = "WebView User-Agent 伪装",
-            subtitle = "按预设字段随机生成 UA，或手动填写格式正确的 UA",
             checked = cfg.bool(XpConfig.KEY_ENABLE_UA, false),
             onCheckedChange = { cfg.put(XpConfig.KEY_ENABLE_UA, it) }
         ) {
@@ -476,70 +496,57 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
         
         FeatureCard(
             title = "伪装 Root（命令返回成功）",
-            subtitle = "应用执行 su / sudo / ls / 等命令时给它一个「成功」的结果",
             checked = cfg.bool(XpConfig.KEY_ROOT_FAKE_ENABLE, false),
             onCheckedChange = { cfg.put(XpConfig.KEY_ROOT_FAKE_ENABLE, it) }
         ) {
             val on = cfg.bool(XpConfig.KEY_ROOT_FAKE_ENABLE, false)
             SwitchRow(
                 title = "伪装 su 文件存在",
-                subtitle = "File.exists() 对 /system/bin/su、/sbin/su 等路径返回 true",
                 checked = cfg.bool(XpConfig.KEY_ROOT_FAKE_FILE, true),
                 enabled = on,
                 onCheckedChange = { cfg.put(XpConfig.KEY_ROOT_FAKE_FILE, it) },
             )
             SwitchRow(
                 title = "屏蔽 Permission denied 并强制成功",
-                subtitle = "受限命令的报错被吃掉，退出码一律改成 0",
                 checked = cfg.bool(XpConfig.KEY_ROOT_FAKE_MASK, true),
                 enabled = on,
                 onCheckedChange = { cfg.put(XpConfig.KEY_ROOT_FAKE_MASK, it) },
-            )
-            HintText(
-                        "「看起来有 Root」，但真去访问受限的东西依然拿不到实际内容，" +
-                        "只是不再报 Permission denied。"
             )
         }
 
         
         FeatureCard(
             title = "隐藏 VPN / 抓包代理",
-            subtitle = "让应用检测不到 VPN 网卡、VPN 传输类型和 HTTP 代理",
             checked = cfg.bool(XpConfig.KEY_VPN_HIDE_ENABLE, false),
             onCheckedChange = { cfg.put(XpConfig.KEY_VPN_HIDE_ENABLE, it) }
         ) {
             val on = cfg.bool(XpConfig.KEY_VPN_HIDE_ENABLE, false)
             SwitchRow(
                 title = "隐藏 VPN 网卡接口",
-                subtitle = "NetworkInterface getName / isUp / isVirtual / 枚举列表 / LinkProperties 接口名",
                 checked = cfg.bool(XpConfig.KEY_VPN_HIDE_IFACE, true),
                 enabled = on,
                 onCheckedChange = { cfg.put(XpConfig.KEY_VPN_HIDE_IFACE, it) },
             )
             SwitchRow(
                 title = "剥离 VPN 传输能力",
-                subtitle = "NetworkCapabilities hasTransport(VPN)=false、NOT_VPN=true、getTransportTypes 过滤、toString 去 VPN",
                 checked = cfg.bool(XpConfig.KEY_VPN_HIDE_CAPS, true),
                 enabled = on,
                 onCheckedChange = { cfg.put(XpConfig.KEY_VPN_HIDE_CAPS, it) },
             )
             SwitchRow(
                 title = "修正旧版 NetworkInfo 类型",
-                subtitle = "getType / getTypeName / isConnected：VPN 一律伪造成 MOBILE",
                 checked = cfg.bool(XpConfig.KEY_VPN_HIDE_NETINFO, true),
                 enabled = on,
                 onCheckedChange = { cfg.put(XpConfig.KEY_VPN_HIDE_NETINFO, it) },
             )
             SwitchRow(
                 title = "隐藏 HTTP 代理（抓包）",
-                subtitle = "System.getProperty(http.proxy*) / ConnectivityManager.getDefaultProxy / android.net.Proxy 全部清空",
                 checked = cfg.bool(XpConfig.KEY_VPN_HIDE_PROXY, true),
                 enabled = on,
                 onCheckedChange = { cfg.put(XpConfig.KEY_VPN_HIDE_PROXY, it) },
             )
             SwitchRow(
                 title = "清空 VPN 相关系统设置",
-                subtitle = "Settings.Secure / Global 里含 vpn 的键（always_on_vpn_app 等）返回空",
                 checked = cfg.bool(XpConfig.KEY_VPN_HIDE_SETTINGS, true),
                 enabled = on,
                 onCheckedChange = { cfg.put(XpConfig.KEY_VPN_HIDE_SETTINGS, it) },
@@ -559,14 +566,11 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
             ) { Text("恢复默认接口名") }
             HintText(
                 "默认已经覆盖 tun / ppp / utun / wg / tap / ipsec 这几类常见 VPN 网卡。" +
-                        "如果你的 VPN 用的是别的接口名，加进去即可（写 tun 就能匹配 tun0、tun1 …）。"
+                        "若 VPN 使用其它接口名，添加进去即可（写 tun 可匹配 tun0、tun1 …）。"
             )
             HintText(
-                "Java 层与 native 层都会拦：NetworkInterface / LinkProperties / " +
-                        "NetworkCapabilities / NetworkInfo / 代理三件套，" +
-                        "native 侧再补 getifaddrs、if_nametoindex，以及 /proc/net/dev、if_inet6、route " +
-                        "这些文件里的网卡名（会预先读一遍剔掉 VPN 接口）。" +
-                        "native 部分需要关于页的「Native 层 Hook」开启。"
+                "开启后应用无论用哪种方式查网卡、代理，都看不到 VPN 的痕迹。" +
+                        "完整的原生层拦截需要在关于页开启「原生层 Hook」。"
             )
         }
 
@@ -575,7 +579,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
         
         FeatureCard(
             title = "阻止闪退 / 自杀",
-            subtitle = "拦截目标应用主动调用 killProcess / exit / halt / 信号 等自杀行为",
             checked = cfg.bool(XpConfig.KEY_BLOCK_CRASH_ENABLE, true),
             onCheckedChange = { cfg.put(XpConfig.KEY_BLOCK_CRASH_ENABLE, it) }
         ) {
@@ -588,37 +591,151 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
             SingleSelectChips(
                 options = listOf("低", "中", "高", "极高"),
                 selectedIndex = cfg.int(XpConfig.KEY_BLOCK_CRASH_LEVEL, 1),
-                onSelect = { cfg.put(XpConfig.KEY_BLOCK_CRASH_LEVEL, it) },
+                onSelect = { lvl ->
+                    cfg.put(XpConfig.KEY_BLOCK_CRASH_LEVEL, lvl)
+                    
+                    
+                    HookCrashBlocker.presetFor(lvl).forEach { (k, v) -> cfg.put(k, v) }
+                },
                 enabled = enabled,
             )
             HintText(
                 when (cfg.int(XpConfig.KEY_BLOCK_CRASH_LEVEL, 1)) {
-                    0 -> "低：仅拦截 Process.killProcess / killProcessQuiet(自身)。风险最小。"
-                    1 -> "中（推荐）：额外拦截 System.exit / Runtime.exit。大多数应用足够。"
-                    2 -> "高：额外拦截 Runtime.halt、Process.sendSignal、Os.kill。"
-                    else -> "极高：额外拦截 killBackgroundProcesses，并吞掉未捕获异常。" +
-                            "所有拦截点都会先 deoptimize，避免被内联 / AOT 编译绕过。"
-                }
+                    0 -> "低：只拦进程自杀（killProcess / killProcessQuiet / killProcessGroup）。风险最小。"
+                    1 -> "中（推荐）：再加退出类（System.exit / Runtime.exit / halt / VMRuntime.exit / " +
+                            "Os._exit）、信号类（sendSignal / Os.kill / Os.killpg / Signal.raise）、" +
+                            "以及命令层的 kill 系列。大多数应用够用。"
+                    2 -> "高：再加系统服务杀进程（ActivityManager / AMS 的 " +
+                            "killBackgroundProcesses、forceStopPackage）、Debug.waitForDebugger，" +
+                            "以及吞掉消息循环里的异常。"
+                    else -> "极高：再加吞掉未捕获异常、拦住退后台与结束任务，以及线程守护。"
+                } +
+                        "下面每个开关都可以单独改，改完以开关为准。"
+            )
+
+            HorizontalDividerCompat()
+            Text(
+                "分项开关",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            SwitchRow(
+                title = "进程自杀",
+                checked = cfg.bool(HookCrashBlocker.KEY_SELF_PROC, true),
+                enabled = enabled,
+                onCheckedChange = { cfg.put(HookCrashBlocker.KEY_SELF_PROC, it) },
+            )
+            SwitchRow(
+                title = "退出指令",
+                checked = cfg.bool(HookCrashBlocker.KEY_EXIT, false),
+                enabled = enabled,
+                onCheckedChange = { cfg.put(HookCrashBlocker.KEY_EXIT, it) },
+            )
+            SwitchRow(
+                title = "信号",
+                checked = cfg.bool(HookCrashBlocker.KEY_SIGNAL, false),
+                enabled = enabled,
+                onCheckedChange = { cfg.put(HookCrashBlocker.KEY_SIGNAL, it) },
+            )
+            SwitchRow(
+                title = "杀死命令",
+                checked = cfg.bool(HookCrashBlocker.KEY_CMD, false),
+                enabled = enabled,
+                onCheckedChange = { cfg.put(HookCrashBlocker.KEY_CMD, it) },
+            )
+            SwitchRow(
+                title = "系统服务杀进程",
+                checked = cfg.bool(HookCrashBlocker.KEY_AM, false),
+                enabled = enabled,
+                onCheckedChange = { cfg.put(HookCrashBlocker.KEY_AM, it) },
+            )
+            SwitchRow(
+                title = "吞掉未捕获异常",
+                checked = cfg.bool(HookCrashBlocker.KEY_UNCAUGHT, false),
+                enabled = enabled,
+                onCheckedChange = { cfg.put(HookCrashBlocker.KEY_UNCAUGHT, it) },
+            )
+            SwitchRow(
+                title = "吞掉消息循环异常",
+                checked = cfg.bool(HookCrashBlocker.KEY_UI, false),
+                enabled = enabled,
+                onCheckedChange = { cfg.put(HookCrashBlocker.KEY_UI, it) },
+            )
+            SwitchRow(
+                title = "退后台 / 结束任务",
+                checked = cfg.bool(HookCrashBlocker.KEY_TASK, false),
+                enabled = enabled,
+                onCheckedChange = { cfg.put(HookCrashBlocker.KEY_TASK, it) },
+            )
+            SwitchRow(
+                title = "阻止等待调试器",
+                checked = cfg.bool(HookCrashBlocker.KEY_DEBUGGER, false),
+                enabled = enabled,
+                onCheckedChange = { cfg.put(HookCrashBlocker.KEY_DEBUGGER, it) },
+            )
+            SwitchRow(
+                title = "线程守护",
+                checked = cfg.bool(HookCrashBlocker.KEY_THREAD, false),
+                enabled = enabled,
+                onCheckedChange = { cfg.put(HookCrashBlocker.KEY_THREAD, it) },
+            )
+            HorizontalDividerCompat()
+            Text(
+                "线程守护参数",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            val threadOn = enabled && cfg.bool(HookCrashBlocker.KEY_THREAD, false)
+            LabeledTextField(
+                label = "每秒允许新建的线程数（0 = 不限）",
+                value = cfg.int(HookCrashBlocker.KEY_THREAD_PER_SEC, HookCrashBlocker.DEF_THREAD_PER_SEC)
+                    .toString(),
+                enabled = threadOn,
+                onValueChange = { raw ->
+                    val v = raw.filter { it.isDigit() }.take(6).toIntOrNull() ?: 0
+                    cfg.put(HookCrashBlocker.KEY_THREAD_PER_SEC, v)
+                },
+            )
+            LabeledTextField(
+                label = "允许的并发线程上限（0 = 不限）",
+                value = cfg.int(HookCrashBlocker.KEY_THREAD_MAX, HookCrashBlocker.DEF_THREAD_MAX)
+                    .toString(),
+                enabled = threadOn,
+                onValueChange = { raw ->
+                    val v = raw.filter { it.isDigit() }.take(6).toIntOrNull() ?: 0
+                    cfg.put(HookCrashBlocker.KEY_THREAD_MAX, v)
+                },
+            )
+            LabeledTextField(
+                label = "超过上限百分之多少就回收（0-100）",
+                value = cfg.int(HookCrashBlocker.KEY_THREAD_PCT, HookCrashBlocker.DEF_THREAD_PCT)
+                    .toString(),
+                enabled = threadOn,
+                onValueChange = { raw ->
+                    val v = raw.filter { it.isDigit() }.take(3).toIntOrNull() ?: 0
+                    cfg.put(HookCrashBlocker.KEY_THREAD_PCT, v.coerceIn(0, 100))
+                },
+            )
+            HintText(
+                "回收方式是 interrupt 最早的那些线程（Android 上没有安全的 Thread.stop）。" +
+                        "线程守护很激进，拦掉的线程创建会让应用出现卡顿或功能缺失，默认关闭，只在需要时开。"
             )
             HorizontalDividerCompat()
             SwitchRow(
                 title = "拦截原生层退出指令",
-                subtitle = "拦住 native 的 exit / _exit / abort / kill(自身)，以及 kill / pkill / am force-stop 命令",
                 checked = cfg.bool(XpConfig.KEY_NATIVE_BLOCK_EXIT, false),
                 enabled = enabled,
                 onCheckedChange = { cfg.put(XpConfig.KEY_NATIVE_BLOCK_EXIT, it) },
             )
             HintText(
-                "上面这个开关需要关于页的「Native 层 Hook」开启才生效。" +
-                        "开启后应用自己调用 native 退出也会被拦住，可能导致它卡在前台退不掉，按需打开。" +
-                        "kill 类命令的识别方式与 Java 层保持一致。"
+                "开启后应用将无法自行退出，可能会卡在前台退不掉，按需打开。" +
+                        "需要关于页的「原生层 Hook」开启才生效。"
             )
         }
 
         
         FeatureCard(
             title = "异常捕获器",
-            subtitle = "Hook 默认未捕获异常处理器，记录崩溃信息或拦截闪退（默认开启）",
             checked = cfg.bool(XpConfig.KEY_CRASH_CATCH_ENABLE, true),
             onCheckedChange = { cfg.put(XpConfig.KEY_CRASH_CATCH_ENABLE, it) }
         ) {
@@ -633,15 +750,12 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
                 checked = cfg.bool(XpConfig.KEY_CRASH_WRITE_FILE, true),
                 onCheckedChange = { cfg.put(XpConfig.KEY_CRASH_WRITE_FILE, it) },
                 title = "崩溃时写入应用私有目录（默认开启）",
-                subtitle = "/storage/emulated/0/Android/data/{包名}/files/${XpConfig.CRASH_LOG_NAME}",
                 enabled = enabled,
             )
             CheckRow(
                 checked = cfg.bool(XpConfig.KEY_CRASH_INTERCEPT, false),
                 onCheckedChange = { cfg.put(XpConfig.KEY_CRASH_INTERCEPT, it) },
-                title = "拦截应用抛出的异常",
-                subtitle = "开启后会额外接管主线程消息循环，把崩溃吃掉让应用继续跑。" +
-                        "可能让应用进入不一致状态，请谨慎开启。",
+                title = "拦截应用抛出的异常（实验性）",
                 enabled = enabled,
             )
         }
@@ -675,9 +789,9 @@ private fun NativeStatusBar(cfg: XpConfigState) {
     val cs = MaterialTheme.colorScheme
 
     val (text, color) = when {
-        !on -> "Native 层 Hook：已关闭（只有 Java 层生效）" to cs.onSurfaceVariant
-        !soOk -> "Native 层 Hook：so 加载失败，检查 APK 是否包含 liblockperm.so" to cs.error
-        else -> "Native 层 Hook：已开启" to cs.primary
+        !on -> "原生层 Hook：已关闭（只有常规方式生效）" to cs.onSurfaceVariant
+        !soOk -> "原生层 Hook：加载失败，请检查 APK 是否完整" to cs.error
+        else -> "原生层 Hook：已开启" to cs.primary
     }
 
     Row(
@@ -740,8 +854,7 @@ private fun CustomPropsCard(cfg: XpConfigState, enabled: Boolean) {
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                "左边填键，右边填值。" +
-                        "同时作用于 Java 的 SystemProperties.get 和 shell 的 getprop 命令",
+                "左边填键，右边填值。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -817,12 +930,9 @@ private fun CustomPropsCard(cfg: XpConfigState, enabled: Boolean) {
                     modifier = Modifier.weight(1f),
                 ) { Text("全部清空", style = MaterialTheme.typography.labelMedium) }
             }
-
             HintText(
-                "· null 表示返回空字符串\n" +
-                        "· 键写 ro.product.model 这类会自动连带改 ro.product.system.model、" +
-                        "vendor / product / odm / system_ext 等整套变体。\n" +
-                        "· 这里填的优先级最高，会覆盖「伪装设备信息」里推导出来的同名属性。"
+                "· 值填 null 表示返回空字符串。\n" +
+                        "· 这里优先级最高，会覆盖「伪装设备信息」推导出的同名属性。"
             )
         }
     }
@@ -846,9 +956,8 @@ private fun HidePathCard(cfg: XpConfigState, enabled: Boolean) {
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                "让目标应用用任何方式都探测不到这些路径：Java 的 File.exists / listFiles、" +
-                        "各种输入输出流、java.nio.file.Files，以及 shell 命令——" +
-                        "命令里只要出现该路径就返回 No such file or directory 且退出码 1。",
+                "让目标应用用任何方式都探测不到这些路径：Java 的 File / 流 / NIO，以及 shell 命令——" +
+                        "命令里出现该路径即报 No such file or directory，退出码 1。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -869,11 +978,8 @@ private fun HidePathCard(cfg: XpConfigState, enabled: Boolean) {
                 ) { Text("全部清空", style = MaterialTheme.typography.labelMedium) }
             }
             HintText(
-                "当前已隐藏 $count 条。填 /sdcard/Magisk 会连它的子路径一起隐藏。" +
-                        "Java 层与 native 层都会拦：open / openat / fopen / access / faccessat / " +
-                        "stat / lstat / fstatat / readlink / realpath，以及 opendir + readdir " +
-                        "过滤目录项；shell 命令里出现该路径则返回 No such file or directory。" +
-                        "native 部分需要关于页的「Native 层 Hook」开启。"
+                "当前已隐藏 $count 条。" +
+                        "原生层拦截需要在关于页开启「原生层 Hook」。"
             )
         }
     }
@@ -900,7 +1006,7 @@ private fun PermissionFakeCard(cfg: XpConfigState, enabled: Boolean) {
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                "让应用以为你授予了权限，不再弹出申请权限。勾了哪些就伪装哪些，只对当前这个应用生效。",
+                "让应用读取权限状态时返回已授予，不再弹出申请。勾选哪些即伪装哪些，仅对当前应用生效。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -931,21 +1037,22 @@ private fun PermissionFakeCard(cfg: XpConfigState, enabled: Boolean) {
             XpConfig.PERM_GROUPS.forEach { g ->
                 SwitchRow(
                     title = "${g.label}（伪装已授权）",
-                    subtitle = if (g.special) {
-                        "特殊权限：靠系统接口查询，伪装成已获得（${g.perms.firstOrNull() ?: ""}）"
-                    } else {
-                        g.perms.joinToString("、")
-                    },
                     checked = g.id in grant,
                     enabled = enabled,
                     onCheckedChange = {
                         cfg.put(XpConfig.KEY_PERM_GRANT, toggled(grant, g.id, it))
                     },
                 )
+                Text(
+                    g.perms.joinToString(" / ") {
+                        it.removePrefix("android.permission.")
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 if (g.fakeData) {
                     SwitchRow(
                         title = "· ${g.label}返回伪造数据",
-                        subtitle = g.fakeHint,
                         checked = g.id in fake,
                         enabled = enabled && g.id in grant,
                         onCheckedChange = {
@@ -955,11 +1062,9 @@ private fun PermissionFakeCard(cfg: XpConfigState, enabled: Boolean) {
                 }
                 HorizontalDividerCompat()
             }
-
             HintText(
-                "第 2 个开关决定\"真的用标准方法去读时拿到什么\"：勾上返回虚构内容" +
-                        "（通讯录假人、存储假文件、短信假记录），不勾可能拿到空值而闪退。" +
-                        "摄像头要真实画面、麦克风要真实音频做不到，所以这两项没有第 2 个开关。"
+                "第 2 个开关决定「真去读时拿到什么」：勾上返回虚构内容（通讯录假人、存储假文件、短信假记录），不勾可能空值闪退。" +
+                        "摄像头、麦克风无伪装，故无此开关。"
             )
         }
     }

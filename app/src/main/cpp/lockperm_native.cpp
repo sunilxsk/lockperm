@@ -42,7 +42,7 @@
 #ifndef PROP_VALUE_MAX
 #define PROP_VALUE_MAX 92
 #endif
-// 😢😢😢
+
 namespace {
 
 volatile bool g_enabled = false;
@@ -56,6 +56,18 @@ std::vector<std::string> g_exist;
 std::string g_kernel;
 std::string g_arch;
 std::string g_gpu;
+std::string g_gpu_vendor;
+std::string g_gpu_gl_version;
+std::string g_gpu_glsl;
+uint32_t g_gpu_vk_api_cfg = 0;
+uint32_t g_gpu_driver_cfg = 0;
+uint32_t g_gpu_vendor_id_cfg = 0;
+uint32_t g_gpu_device_id_cfg = 0;
+uint32_t g_gpu_max_dim_cfg = 0;
+uint32_t g_gpu_max_cube_cfg = 0;
+uint32_t g_gpu_layers_cfg = 0;
+uint32_t g_gpu_push_cfg = 0;
+int g_gpu_memory_mb_cfg = 0;
 std::string g_cache;
 
 std::vector<std::string> g_vpn;
@@ -229,6 +241,10 @@ const char *materialize(SpoofFile *f) {
   f->ready = true;
   return f->real.c_str();
 }
+
+bool spoofCommand(const char *cmd, std::string &out);
+bool spoofArgv(char *const argv[], std::vector<std::string> &keep,
+               std::vector<char *> &ptrs);
 
 bool readWholeFile(const char *path, std::string &out) {
   ScopedBypass bp;
@@ -420,7 +436,15 @@ bool isVpnIface(const char *name) {
 
 int64_t realUptimeMs() {
   struct timespec ts;
-  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+#if defined(__NR_clock_gettime)
+  if (syscall(__NR_clock_gettime, CLOCK_MONOTONIC, &ts) != 0) return 0;
+#else
+  if (orig_clock_gettime != nullptr) {
+    if (orig_clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+  } else {
+    return 0;
+  }
+#endif
   return (int64_t)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
 }
 
@@ -477,10 +501,14 @@ int fake_uname(struct utsname *u) {
 typedef int (*gettimeofday_t)(struct timeval *, struct timezone *);
 typedef int (*clock_gettime_t)(clockid_t, struct timespec *);
 typedef int (*sysinfo_t)(struct sysinfo *);
+typedef time_t (*time_t_fn)(time_t *);
+typedef clock_t (*clock_t_fn)(void);
 
 gettimeofday_t orig_gettimeofday = nullptr;
 clock_gettime_t orig_clock_gettime = nullptr;
 sysinfo_t orig_sysinfo = nullptr;
+time_t_fn orig_time = nullptr;
+clock_t_fn orig_clock = nullptr;
 
 int fake_gettimeofday(struct timeval *tv, struct timezone *tz) {
   int r = orig_gettimeofday != nullptr ? orig_gettimeofday(tv, tz) : -1;
@@ -517,6 +545,26 @@ int fake_clock_gettime(clockid_t clk, struct timespec *ts) {
     ts->tv_nsec = (long)((ms % 1000LL) * 1000000LL);
   }
   return r;
+}
+
+time_t fake_time(time_t *out) {
+  time_t r = orig_time != nullptr ? orig_time(nullptr) : (time_t)-1;
+  if (r == (time_t)-1) return r;
+  if (g_enabled && g_time_enable && g_time_offset_ms != 0) {
+    r = r + (time_t)(g_time_offset_ms / 1000);
+  }
+  if (out != nullptr) *out = r;
+  return r;
+}
+
+clock_t fake_clock(void) {
+  if (g_enabled && g_uptime_enable) {
+    int64_t delta = realUptimeMs() - g_uptime_base_ms;
+    if (delta < 0) delta = 0;
+    int64_t ms = g_uptime_target_ms + delta;
+    return (clock_t)(ms * (CLOCKS_PER_SEC / 1000));
+  }
+  return orig_clock != nullptr ? orig_clock() : (clock_t)-1;
 }
 
 int fake_sysinfo(struct sysinfo *info) {
@@ -812,6 +860,13 @@ int fake_execve(const char *path, char *const argv[], char *const envp[]) {
     errno = EACCES;
     return -1;
   }
+  {
+    std::vector<std::string> keep;
+    std::vector<char *> ptrs;
+    if (spoofArgv(argv, keep, ptrs)) {
+      return orig_execve != nullptr ? orig_execve(path, ptrs.data(), envp) : -1;
+    }
+  }
   return orig_execve != nullptr ? orig_execve(path, argv, envp) : -1;
 }
 
@@ -828,6 +883,13 @@ int fake_execv(const char *path, char *const argv[]) {
     LOGW("blocked kill command: %s", path != nullptr ? path : "(null)");
     errno = EACCES;
     return -1;
+  }
+  {
+    std::vector<std::string> keep;
+    std::vector<char *> ptrs;
+    if (spoofArgv(argv, keep, ptrs)) {
+      return orig_execv != nullptr ? orig_execv(path, ptrs.data()) : -1;
+    }
   }
   return orig_execv != nullptr ? orig_execv(path, argv) : -1;
 }
@@ -846,6 +908,13 @@ int fake_execvp(const char *file, char *const argv[]) {
     errno = EACCES;
     return -1;
   }
+  {
+    std::vector<std::string> keep;
+    std::vector<char *> ptrs;
+    if (spoofArgv(argv, keep, ptrs)) {
+      return orig_execvp != nullptr ? orig_execvp(file, ptrs.data()) : -1;
+    }
+  }
   return orig_execvp != nullptr ? orig_execvp(file, argv) : -1;
 }
 
@@ -860,12 +929,68 @@ bool cmdIsKill(const char *cmd) {
   return strstr(p, "force-stop") != nullptr || strstr(p, "am kill") != nullptr;
 }
 
+bool spoofCommand(const char *cmd, std::string &out) {
+  if (!g_enabled || cmd == nullptr || *cmd == '\0') return false;
+  std::string s(cmd);
+  bool changed = false;
+  pthread_rwlock_rdlock(&g_lock);
+  std::vector<SpoofFile *> snap = g_files;
+  pthread_rwlock_unlock(&g_lock);
+  for (size_t i = 0; i < snap.size(); ++i) {
+    SpoofFile *f = snap[i];
+    if (f->path.empty()) continue;
+    size_t pos = 0;
+    while ((pos = s.find(f->path, pos)) != std::string::npos) {
+      const char *real = materialize(f);
+      if (real == nullptr || *real == '\0') break;
+      s.replace(pos, f->path.size(), real);
+      pos += strlen(real);
+      changed = true;
+    }
+  }
+  if (changed) out = s;
+  return changed;
+}
+
+bool spoofArgv(char *const argv[], std::vector<std::string> &keep,
+               std::vector<char *> &ptrs) {
+  if (!g_enabled || argv == nullptr) return false;
+  bool changed = false;
+  for (int i = 0; argv[i] != nullptr; ++i) {
+    keep.push_back(argv[i] != nullptr ? argv[i] : "");
+  }
+  pthread_rwlock_rdlock(&g_lock);
+  std::vector<SpoofFile *> snap = g_files;
+  pthread_rwlock_unlock(&g_lock);
+  for (size_t k = 0; k < keep.size(); ++k) {
+    for (size_t i = 0; i < snap.size(); ++i) {
+      SpoofFile *f = snap[i];
+      if (f->path.empty() || keep[k] != f->path) continue;
+      const char *real = materialize(f);
+      if (real != nullptr && *real != '\0') {
+        keep[k] = real;
+        changed = true;
+      }
+      break;
+    }
+  }
+  if (!changed) return false;
+  ptrs.clear();
+  for (size_t k = 0; k < keep.size(); ++k) ptrs.push_back((char *)keep[k].c_str());
+  ptrs.push_back(nullptr);
+  return true;
+}
+
 int fake_system(const char *cmd) {
   if (cmdHitsHidden(cmd)) return 1;
   if (g_enabled && g_block_exec) return 1;
   if (cmdIsKill(cmd)) {
     LOGW("blocked kill command: %s", cmd);
     return 1;
+  }
+  std::string patched;
+  if (spoofCommand(cmd, patched)) {
+    return orig_system != nullptr ? orig_system(patched.c_str()) : -1;
   }
   return orig_system != nullptr ? orig_system(cmd) : -1;
 }
@@ -875,6 +1000,10 @@ FILE *fake_popen(const char *cmd, const char *type) {
     if (cmdIsKill(cmd)) LOGW("blocked kill command: %s", cmd != nullptr ? cmd : "");
     ScopedBypass bp;
     return orig_popen != nullptr ? orig_popen("true", type) : nullptr;
+  }
+  std::string patched;
+  if (spoofCommand(cmd, patched)) {
+    return orig_popen != nullptr ? orig_popen(patched.c_str(), type) : nullptr;
   }
   return orig_popen != nullptr ? orig_popen(cmd, type) : nullptr;
 }
@@ -1039,36 +1168,81 @@ static char g_gpu_buf[256] = {0};
 static char g_gpu_vendor_buf[64] = {0};
 static bool g_gpu_buf_ready = false;
 
+static char g_gpu_glver_buf[96] = {0};
+static char g_gpu_glsl_buf[96] = {0};
+static uint32_t g_gpu_vk_api = 0;
+static uint32_t g_gpu_driver = 0;
+static uint32_t g_gpu_vendor_id = 0;
+static uint32_t g_gpu_device_id = 0;
+static uint32_t g_gpu_max_dim = 0;
+static uint32_t g_gpu_max_cube = 0;
+static uint32_t g_gpu_layers = 0;
+static uint32_t g_gpu_push = 0;
+static int64_t g_gpu_memory_bytes = 0;
+
 void refreshGpuBuf() {
   pthread_rwlock_rdlock(&g_lock);
   std::string gpu = g_gpu;
+  std::string vendor = g_gpu_vendor;
+  std::string glver = g_gpu_gl_version;
+  std::string glsl = g_gpu_glsl;
   pthread_rwlock_unlock(&g_lock);
+
+  g_gpu_vk_api = g_gpu_vk_api_cfg;
+  g_gpu_driver = g_gpu_driver_cfg;
+  g_gpu_vendor_id = g_gpu_vendor_id_cfg;
+  g_gpu_device_id = g_gpu_device_id_cfg;
+  g_gpu_max_dim = g_gpu_max_dim_cfg;
+  g_gpu_max_cube = g_gpu_max_cube_cfg;
+  g_gpu_layers = g_gpu_layers_cfg;
+  g_gpu_push = g_gpu_push_cfg;
+  g_gpu_memory_bytes = (int64_t)g_gpu_memory_mb_cfg * 1024LL * 1024LL;
+
   if (gpu.empty()) {
     g_gpu_buf_ready = false;
     g_gpu_buf[0] = '\0';
-    return;
+  } else {
+    size_t n = gpu.size();
+    if (n >= sizeof(g_gpu_buf)) n = sizeof(g_gpu_buf) - 1;
+    memcpy(g_gpu_buf, gpu.data(), n);
+    g_gpu_buf[n] = '\0';
+    g_gpu_buf_ready = true;
   }
-  size_t n = gpu.size();
-  if (n >= sizeof(g_gpu_buf)) n = sizeof(g_gpu_buf) - 1;
-  memcpy(g_gpu_buf, gpu.data(), n);
-  g_gpu_buf[n] = '\0';
 
-  const char *v = strstr(g_gpu_buf, "Adreno") != nullptr ? "Qualcomm"
-                  : strstr(g_gpu_buf, "Mali") != nullptr ? "ARM"
-                  : strstr(g_gpu_buf, "Immortalis") != nullptr ? "ARM"
-                  : strstr(g_gpu_buf, "Maleoon") != nullptr ? "HiSilicon"
-                  : strstr(g_gpu_buf, "PowerVR") != nullptr
-                      ? "Imagination Technologies"
-                      : "ARM";
-  strncpy(g_gpu_vendor_buf, v, sizeof(g_gpu_vendor_buf) - 1);
+  std::string v = vendor;
+  if (v.empty()) {
+    const char *d = g_gpu_buf_ready ? g_gpu_buf : gpu.c_str();
+    v = strstr(d, "Adreno") != nullptr ? "Qualcomm"
+        : strstr(d, "Mali") != nullptr ? "ARM"
+        : strstr(d, "Immortalis") != nullptr ? "ARM"
+        : strstr(d, "Maleoon") != nullptr ? "HiSilicon"
+        : strstr(d, "PowerVR") != nullptr ? "Imagination Technologies"
+        : "ARM";
+  }
+  strncpy(g_gpu_vendor_buf, v.c_str(), sizeof(g_gpu_vendor_buf) - 1);
   g_gpu_vendor_buf[sizeof(g_gpu_vendor_buf) - 1] = '\0';
-  g_gpu_buf_ready = true;
+
+  std::string gv = glver.empty() ? std::string("OpenGL ES 3.2 V@0502.0") : glver;
+  strncpy(g_gpu_glver_buf, gv.c_str(), sizeof(g_gpu_glver_buf) - 1);
+  g_gpu_glver_buf[sizeof(g_gpu_glver_buf) - 1] = '\0';
+
+  std::string gs = glsl.empty() ? std::string("OpenGL ES GLSL ES 3.20") : glsl;
+  strncpy(g_gpu_glsl_buf, gs.c_str(), sizeof(g_gpu_glsl_buf) - 1);
+  g_gpu_glsl_buf[sizeof(g_gpu_glsl_buf) - 1] = '\0';
 }
 
 const unsigned char *fake_gl_get_string(unsigned int name) {
   if (g_enabled && g_gpu_buf_ready) {
     if (name == 0x1F01) return (const unsigned char *)g_gpu_buf;
     if (name == 0x1F00) return (const unsigned char *)g_gpu_vendor_buf;
+  }
+  if (g_enabled) {
+    if (name == 0x1F02 && g_gpu_glver_buf[0] != '\0') {
+      return (const unsigned char *)g_gpu_glver_buf;
+    }
+    if (name == 0x8B8C && g_gpu_glsl_buf[0] != '\0') {
+      return (const unsigned char *)g_gpu_glsl_buf;
+    }
   }
   return orig_gl_get_string != nullptr ? orig_gl_get_string(name) : nullptr;
 }
@@ -1077,7 +1251,34 @@ const char *fake_egl_query_string(void *dpy, int name) {
   if (g_enabled && g_gpu_buf_ready && name == 0x305D) {
     return g_gpu_buf;
   }
+  if (g_enabled && name == 0x3053 && g_gpu_vendor_buf[0] != '\0') {
+    return g_gpu_vendor_buf;
+  }
   return orig_egl_query_string != nullptr ? orig_egl_query_string(dpy, name) : nullptr;
+}
+
+typedef void (*gl_get_integerv_t)(unsigned int, int *);
+gl_get_integerv_t orig_gl_get_integerv = nullptr;
+
+void fake_gl_get_integerv(unsigned int pname, int *data) {
+  if (orig_gl_get_integerv != nullptr) orig_gl_get_integerv(pname, data);
+  if (!g_enabled || data == nullptr) return;
+  uint32_t v = 0;
+  switch (pname) {
+    case 0x0D33:
+    case 0x84E8:
+      v = g_gpu_max_dim;
+      break;
+    case 0x851C:
+      v = g_gpu_max_cube;
+      break;
+    case 0x88FF:
+      v = g_gpu_layers;
+      break;
+    default:
+      return;
+  }
+  if (v != 0) *data = (int)v;
 }
 
 void *resolveGfx(const char *lib, const char *sym, bool tryLoad) {
@@ -1088,6 +1289,105 @@ void *resolveGfx(const char *lib, const char *sym, bool tryLoad) {
     if (h != nullptr) {
       p = dlsym(h, sym);
     }
+  }
+  return p;
+}
+
+typedef void (*vk_get_props_t)(void *, void *);
+
+vk_get_props_t orig_vk_get_props = nullptr;
+vk_get_props_t orig_vk_get_props2 = nullptr;
+
+static const size_t VK_NAME_OFF = 20;
+static const size_t VK_LIMITS_OFF = 292;
+
+void patchVkProps(void *props, size_t base) {
+  if (props == nullptr || !g_enabled) return;
+  uint8_t *p = (uint8_t *)props + base;
+
+  if (g_gpu_vk_api != 0) *((uint32_t *)(p + 0)) = g_gpu_vk_api;
+  if (g_gpu_driver != 0) *((uint32_t *)(p + 4)) = g_gpu_driver;
+  if (g_gpu_vendor_id != 0) *((uint32_t *)(p + 8)) = g_gpu_vendor_id;
+  if (g_gpu_device_id != 0) *((uint32_t *)(p + 12)) = g_gpu_device_id;
+
+  if (g_gpu_buf_ready) {
+    char *name = (char *)(p + VK_NAME_OFF);
+    strncpy(name, g_gpu_buf, 255);
+    name[255] = '\0';
+  }
+
+  uint8_t *lim = p + VK_LIMITS_OFF;
+  if (g_gpu_max_dim != 0) {
+    *((uint32_t *)(lim + 0)) = g_gpu_max_dim;
+    *((uint32_t *)(lim + 4)) = g_gpu_max_dim;
+    *((uint32_t *)(lim + 8)) = g_gpu_max_dim;
+  }
+  if (g_gpu_max_cube != 0) *((uint32_t *)(lim + 12)) = g_gpu_max_cube;
+  if (g_gpu_layers != 0) *((uint32_t *)(lim + 16)) = g_gpu_layers;
+  if (g_gpu_push != 0) *((uint32_t *)(lim + 32)) = g_gpu_push;
+}
+
+void fake_vk_get_props(void *phys, void *props) {
+  if (orig_vk_get_props != nullptr) orig_vk_get_props(phys, props);
+  patchVkProps(props, 0);
+}
+
+void fake_vk_get_props2(void *phys, void *props) {
+  if (orig_vk_get_props2 != nullptr) orig_vk_get_props2(phys, props);
+  patchVkProps(props, 16);
+}
+
+typedef void (*vk_get_mem_props_t)(void *, void *);
+vk_get_mem_props_t orig_vk_get_mem_props = nullptr;
+
+void fake_vk_get_mem_props(void *phys, void *props) {
+  if (orig_vk_get_mem_props != nullptr) orig_vk_get_mem_props(phys, props);
+  if (props == nullptr || !g_enabled || g_gpu_memory_bytes <= 0) return;
+  uint8_t *p = (uint8_t *)props;
+  uint32_t heapCount = *((uint32_t *)(p + 260));
+  if (heapCount > 16) heapCount = 16;
+  for (uint32_t i = 0; i < heapCount; ++i) {
+    *((uint64_t *)(p + 264 + (size_t)i * 16)) = (uint64_t)g_gpu_memory_bytes;
+  }
+}
+
+typedef void *(*vk_get_proc_addr_t)(void *, const char *);
+
+vk_get_proc_addr_t orig_vk_gipa = nullptr;
+vk_get_proc_addr_t orig_vk_gdpa = nullptr;
+
+const char *vkNameOf(const char *name) {
+  if (name == nullptr) return nullptr;
+  if (strcmp(name, "vkGetPhysicalDeviceProperties") == 0) return "props";
+  if (strcmp(name, "vkGetPhysicalDeviceProperties2") == 0) return "props2";
+  if (strcmp(name, "vkGetPhysicalDeviceProperties2KHR") == 0) return "props2";
+  return nullptr;
+}
+
+void *fake_vk_gipa(void *instance, const char *name) {
+  void *p = orig_vk_gipa != nullptr ? orig_vk_gipa(instance, name) : nullptr;
+  if (!g_enabled || !g_gpu_buf_ready || p == nullptr) return p;
+  const char *which = vkNameOf(name);
+  if (which == nullptr) return p;
+  if (strcmp(which, "props") == 0 && orig_vk_get_props != nullptr) {
+    return (void *)fake_vk_get_props;
+  }
+  if (strcmp(which, "props2") == 0 && orig_vk_get_props2 != nullptr) {
+    return (void *)fake_vk_get_props2;
+  }
+  return p;
+}
+
+void *fake_vk_gdpa(void *device, const char *name) {
+  void *p = orig_vk_gdpa != nullptr ? orig_vk_gdpa(device, name) : nullptr;
+  if (!g_enabled || !g_gpu_buf_ready || p == nullptr) return p;
+  const char *which = vkNameOf(name);
+  if (which == nullptr) return p;
+  if (strcmp(which, "props") == 0 && orig_vk_get_props != nullptr) {
+    return (void *)fake_vk_get_props;
+  }
+  if (strcmp(which, "props2") == 0 && orig_vk_get_props2 != nullptr) {
+    return (void *)fake_vk_get_props2;
   }
   return p;
 }
@@ -1110,7 +1410,55 @@ bool hookGpu() {
                 (dobby_dummy_func_t *)&orig_egl_query_string);
     }
   }
-  return orig_gl_get_string != nullptr || orig_egl_query_string != nullptr;
+  if (orig_vk_get_props == nullptr) {
+    void *v = resolveGfx("libvulkan.so", "vkGetPhysicalDeviceProperties", true);
+    if (v != nullptr) {
+      DobbyHook(v, (dobby_dummy_func_t)fake_vk_get_props,
+                (dobby_dummy_func_t *)&orig_vk_get_props);
+    }
+  }
+  if (orig_vk_get_props2 == nullptr) {
+    void *v = resolveGfx("libvulkan.so", "vkGetPhysicalDeviceProperties2", true);
+    if (v == nullptr) {
+      v = resolveGfx("libvulkan.so", "vkGetPhysicalDeviceProperties2KHR", true);
+    }
+    if (v != nullptr) {
+      DobbyHook(v, (dobby_dummy_func_t)fake_vk_get_props2,
+                (dobby_dummy_func_t *)&orig_vk_get_props2);
+    }
+  }
+  if (orig_vk_get_mem_props == nullptr) {
+    void *v = resolveGfx("libvulkan.so", "vkGetPhysicalDeviceMemoryProperties", true);
+    if (v != nullptr) {
+      DobbyHook(v, (dobby_dummy_func_t)fake_vk_get_mem_props,
+                (dobby_dummy_func_t *)&orig_vk_get_mem_props);
+    }
+  }
+  if (orig_gl_get_integerv == nullptr) {
+    void *g = resolveGfx("libGLESv2.so", "glGetIntegerv", true);
+    if (g == nullptr) g = resolveGfx("libGLESv1_CM.so", "glGetIntegerv", true);
+    if (g != nullptr) {
+      DobbyHook(g, (dobby_dummy_func_t)fake_gl_get_integerv,
+                (dobby_dummy_func_t *)&orig_gl_get_integerv);
+    }
+  }
+  if (orig_vk_gipa == nullptr) {
+    void *v = resolveGfx("libvulkan.so", "vkGetInstanceProcAddr", true);
+    if (v != nullptr) {
+      DobbyHook(v, (dobby_dummy_func_t)fake_vk_gipa,
+                (dobby_dummy_func_t *)&orig_vk_gipa);
+    }
+  }
+  if (orig_vk_gdpa == nullptr) {
+    void *v = resolveGfx("libvulkan.so", "vkGetDeviceProcAddr", true);
+    if (v != nullptr) {
+      DobbyHook(v, (dobby_dummy_func_t)fake_vk_gdpa,
+                (dobby_dummy_func_t *)&orig_vk_gdpa);
+    }
+  }
+  if (!g_gpu_buf_ready) refreshGpuBuf();
+  return orig_gl_get_string != nullptr || orig_egl_query_string != nullptr ||
+         orig_vk_get_props != nullptr || orig_vk_get_props2 != nullptr;
 }
 
 struct sigaction g_old[NSIG];
@@ -1180,6 +1528,8 @@ int installHooks() {
   TRY("gettimeofday", fake_gettimeofday, orig_gettimeofday);
   TRY("clock_gettime", fake_clock_gettime, orig_clock_gettime);
   TRY("sysinfo", fake_sysinfo, orig_sysinfo);
+  TRY("time", fake_time, orig_time);
+  TRY("clock", fake_clock, orig_clock);
   TRY("open", fake_open, orig_open);
   TRY("open64", fake_open, orig_open64);
   TRY("openat", fake_openat, orig_openat);
@@ -1246,6 +1596,18 @@ void applyPayload(const char *payload) {
   g_kernel.clear();
   g_arch.clear();
   g_gpu.clear();
+  g_gpu_vendor.clear();
+  g_gpu_gl_version.clear();
+  g_gpu_glsl.clear();
+  g_gpu_vk_api_cfg = 0;
+  g_gpu_driver_cfg = 0;
+  g_gpu_vendor_id_cfg = 0;
+  g_gpu_device_id_cfg = 0;
+  g_gpu_max_dim_cfg = 0;
+  g_gpu_max_cube_cfg = 0;
+  g_gpu_layers_cfg = 0;
+  g_gpu_push_cfg = 0;
+  g_gpu_memory_mb_cfg = 0;
   g_time_offset_ms = 0;
   g_time_enable = false;
   g_uptime_enable = false;
@@ -1266,6 +1628,24 @@ void applyPayload(const char *payload) {
       g_kernel = body;
     } else if (line.compare(0, 2, "A\t") == 0) {
       g_arch = body;
+    } else if (line.compare(0, 2, "g\t") == 0) {
+      std::string rest = line.substr(2);
+      size_t tab = rest.find('\t');
+      if (tab == std::string::npos) continue;
+      std::string field = rest.substr(0, tab);
+      std::string val = rest.substr(tab + 1);
+      if (field == "vendor") g_gpu_vendor = val;
+      else if (field == "glversion") g_gpu_gl_version = val;
+      else if (field == "glsl") g_gpu_glsl = val;
+      else if (field == "vkapi") g_gpu_vk_api_cfg = (uint32_t)strtoul(val.c_str(), nullptr, 10);
+      else if (field == "driver") g_gpu_driver_cfg = (uint32_t)strtoul(val.c_str(), nullptr, 10);
+      else if (field == "vendorid") g_gpu_vendor_id_cfg = (uint32_t)strtoul(val.c_str(), nullptr, 10);
+      else if (field == "deviceid") g_gpu_device_id_cfg = (uint32_t)strtoul(val.c_str(), nullptr, 10);
+      else if (field == "memory") g_gpu_memory_mb_cfg = (int)strtol(val.c_str(), nullptr, 10);
+      else if (field == "maxdim") g_gpu_max_dim_cfg = (uint32_t)strtoul(val.c_str(), nullptr, 10);
+      else if (field == "maxcube") g_gpu_max_cube_cfg = (uint32_t)strtoul(val.c_str(), nullptr, 10);
+      else if (field == "layers") g_gpu_layers_cfg = (uint32_t)strtoul(val.c_str(), nullptr, 10);
+      else if (field == "push") g_gpu_push_cfg = (uint32_t)strtoul(val.c_str(), nullptr, 10);
     } else if (line.compare(0, 2, "G\t") == 0) {
       g_gpu = body;
     } else if (line.compare(0, 2, "D\t") == 0) {
@@ -1391,6 +1771,8 @@ Java_io_github_sunilxsk_lockperm_NativeBridge_nativeHookCount(JNIEnv *, jclass) 
   if (orig_gettimeofday) n++;
   if (orig_clock_gettime) n++;
   if (orig_sysinfo) n++;
+  if (orig_time) n++;
+  if (orig_clock) n++;
   if (orig_open || orig_open64) n++;
   if (orig_openat || orig_openat64) n++;
   if (orig_fopen) n++;
@@ -1421,6 +1803,8 @@ Java_io_github_sunilxsk_lockperm_NativeBridge_nativeHookCount(JNIEnv *, jclass) 
   if (orig_if_nametoindex) n++;
   if (orig_gl_get_string) n++;
   if (orig_egl_query_string) n++;
+  if (orig_vk_get_props) n++;
+  if (orig_vk_get_props2) n++;
   return n;
 }
 

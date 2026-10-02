@@ -194,16 +194,104 @@ object XpConfig {
     const val KEY_FAKE_CPUINFO_HW = "fake_cpuinfo_hw"
     const val KEY_FAKE_PLATFORM = "fake_platform"
     const val KEY_FAKE_GPU = "fake_gpu"
+    
+    const val KEY_FAKE_GPU_VENDOR = "fake_gpu_vendor"
+    const val KEY_FAKE_GPU_GL_VERSION = "fake_gpu_gl_version"
+    const val KEY_FAKE_GPU_GLSL = "fake_gpu_glsl"
+    const val KEY_FAKE_GPU_VK_API = "fake_gpu_vk_api"
+    const val KEY_FAKE_GPU_DRIVER = "fake_gpu_driver"
+    const val KEY_FAKE_GPU_VENDOR_ID = "fake_gpu_vendor_id"
+    const val KEY_FAKE_GPU_DEVICE_ID = "fake_gpu_device_id"
+    const val KEY_FAKE_GPU_MEMORY_MB = "fake_gpu_memory_mb"
+    const val KEY_FAKE_GPU_MAX_TEX = "fake_gpu_max_tex"
+    const val KEY_FAKE_GPU_MAX_CUBE = "fake_gpu_max_cube"
+    const val KEY_FAKE_GPU_MAX_LAYERS = "fake_gpu_max_layers"
+    const val KEY_FAKE_GPU_PUSH = "fake_gpu_push"
+
+    
+    const val KEY_FAKE_CPU_ENABLE = "fake_cpu_enable"
+    const val KEY_FAKE_CPU_MODE = "fake_cpu_mode"          
+    const val KEY_FAKE_CPU_PRESET = "fake_cpu_preset"      
+    const val KEY_FAKE_CPU_CUSTOM = "fake_cpu_custom"      
+    const val KEY_FAKE_CPU_CORES = "fake_cpu_cores"
     const val KEY_FAKE_TEMP_ENABLE = "fake_temp_enable"
     const val KEY_FAKE_TEMP = "fake_temp"
     const val KEY_FAKE_BATTERY_ENABLE = "fake_battery_enable"
     const val KEY_FAKE_BATTERY = "fake_battery"
     const val KEY_OAID = "fake_oaid"
 
-    const val DEF_KERNEL = "4.14.186-gdd7913c2f0d5"
+    const val DEF_KERNEL = "6.6.28-android15-8-g3f2a1b4c5d6-ab12345678"
     const val DEF_ARCH = "aarch64"
     const val DEF_TEMP = 99
     const val DEF_BATTERY = 88
+
+    const val DEF_GPU_MEMORY_MB = 7469
+    const val DEF_GPU_MAX_TEX = 16384
+    const val DEF_GPU_MAX_LAYERS = 4096
+    const val DEF_GPU_PUSH = 256
+
+    
+    
+    
+    
+    
+    
+    const val CPU_MODE_PRESET = "preset"
+    const val CPU_MODE_CUSTOM = "custom"
+
+    data class CpuPreset(
+        val soc: String,        
+        val board: String,      
+        val cpuinfo: String,    
+    )
+
+    val CPU_PRESETS: List<CpuPreset> by lazy { buildCpuPresets() }
+
+    fun cpuPresetNames(): List<String> =
+        listOf("骁龙 8 Gen 1", "天玑 9000", "Exynos 2200", "麒麟 9000", "骁龙 865")
+
+    private fun buildCpuPresets(): List<CpuPreset> = listOf(
+        CpuPreset("SM8450", "sm8450", cpuinfoOf("SM8450", "0x41", "0xd4b", 8, "Qualcomm")),
+        CpuPreset("MT6983", "mt6983", cpuinfoOf("MT6983", "0x41", "0xd4c", 8, "MediaTek")),
+        CpuPreset("S5E9925", "s5e9925", cpuinfoOf("S5E9925", "0x53", "0x001", 8, "Samsung")),
+        CpuPreset("Kirin 9000", "hi3660", cpuinfoOf("Kirin 9000", "0x48", "0xd02", 8, "HiSilicon")),
+        CpuPreset("SM8250", "sm8250", cpuinfoOf("SM8250", "0x41", "0xd44", 8, "Qualcomm")),
+    )
+
+    
+    fun cpuinfoOf(soc: String, implementer: String, part: String, cores: Int, vendor: String): String {
+        val sb = StringBuilder()
+        val feats = "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp " +
+                "cpuid asimdrdm lrcpc dcpop asimddp"
+        
+        for (i in 0 until cores) {
+            val big = i >= cores - 2
+            sb.append("processor\t: $i\n")
+            sb.append("BogoMIPS\t: 38.40\n")
+            sb.append("Features\t: $feats\n")
+            sb.append("CPU implementer\t: $implementer\n")
+            sb.append("CPU architecture: 8\n")
+            sb.append("CPU variant\t: ${if (big) 0x2 else 0x1}\n")
+            sb.append("CPU part\t: ${if (big) part else "0xd05"}\n")
+            sb.append("CPU revision\t: ${i % 4}\n\n")
+        }
+        sb.append("Hardware\t: $soc\n")
+        return sb.toString()
+    }
+
+    
+    fun vkApiVersion(text: String): Int {
+        val p = text.split(".").map { it.trim().toIntOrNull() ?: 0 }
+        if (p.isEmpty()) return 0
+        val major = p[0]
+        val minor = p.getOrNull(1) ?: 0
+        val patch = p.getOrNull(2) ?: 0
+        return ((major shl 22) or (minor shl 12) or patch)
+    }
+
+    
+    fun hexInt(text: String): Int =
+        text.trim().removePrefix("0x").removePrefix("0X").toIntOrNull(16) ?: 0
 
     
     val ANDROID_VERSIONS: List<Pair<String, Int>> = listOf(
@@ -227,7 +315,6 @@ object XpConfig {
             s.startsWith("SM7") -> "Adreno (TM) 660"
             s.startsWith("SM6") -> "Adreno (TM) 640"
             s.contains("TENSOR") -> "Mali-G715-Immortalis MC7"
-            s.startsWith("MT6") -> "Mali-G68 MC4"
             s.startsWith("MT7") -> "Mali-G720 Immortalis MP12"
             s.contains("KIRIN") -> "Maleoon 910"
             else -> "Adreno (TM) 750"
@@ -245,8 +332,6 @@ object XpConfig {
         "TENSOR G4" to "Mali-G715-Immortalis MC7",
         "MT6989" to "Mali-G720 Immortalis MP12",
         "MT6895" to "Mali-G610 MC6",
-        "MT6877V/TZA" to "Mali-G68 MC4",
-        "MT6877" to "Mali-G68 MC4",
         "KIRIN 9000S" to "Maleoon 910",
     )
 
@@ -373,9 +458,21 @@ object XpConfig {
     )
 
     val EXTRA_FIELDS_HW: List<TextFieldSpec> = listOf(
-        TextFieldSpec(KEY_FAKE_KERNEL, "内核版本", "如 4.14.186-gdd7913c2f0d5"),
+        TextFieldSpec(KEY_FAKE_KERNEL, "内核版本", "如 6.6.28-android15-8-g3f2a1b4c5d6-ab12345678"),
         TextFieldSpec(KEY_FAKE_ARCH, "内核架构", "如 aarch64 / x86_64"),
-        TextFieldSpec(KEY_FAKE_GPU, "GPU 渲染器名", "如 Mali-G68 MC4、Adreno (TM) 750"),
+        TextFieldSpec(KEY_FAKE_GPU, "GPU 渲染器名", "如 Adreno (TM) 750"),
+        TextFieldSpec(KEY_FAKE_GPU_VENDOR, "GPU 厂商", "留空按渲染器名推导"),
+        TextFieldSpec(KEY_FAKE_GPU_GL_VERSION, "OpenGL ES 版本", "如 OpenGL ES 3.2 V@0502.0"),
+        TextFieldSpec(KEY_FAKE_GPU_GLSL, "GLSL 版本", "如 OpenGL ES GLSL ES 3.20"),
+        TextFieldSpec(KEY_FAKE_GPU_VK_API, "Vulkan API 版本", "如 1.1.0"),
+        TextFieldSpec(KEY_FAKE_GPU_DRIVER, "驱动版本（十六进制）", "如 0x8020000"),
+        TextFieldSpec(KEY_FAKE_GPU_VENDOR_ID, "厂商 ID（十六进制）", "如 0x13B5"),
+        TextFieldSpec(KEY_FAKE_GPU_DEVICE_ID, "设备 ID（十六进制）", "如 0x72120000"),
+        TextFieldSpec(KEY_FAKE_GPU_MEMORY_MB, "显存大小（MB）", "如 7469"),
+        TextFieldSpec(KEY_FAKE_GPU_MAX_TEX, "最大图像尺寸 1D/2D/3D", "如 16384"),
+        TextFieldSpec(KEY_FAKE_GPU_MAX_CUBE, "最大 Cube 图像尺寸", "如 16384"),
+        TextFieldSpec(KEY_FAKE_GPU_MAX_LAYERS, "最大图像层数", "如 4096"),
+        TextFieldSpec(KEY_FAKE_GPU_PUSH, "Max Push Constants Size", "如 256"),
         TextFieldSpec(KEY_FAKE_CPUINFO_HW, "/proc/cpuinfo Hardware", "留空=跟随 SOC 型号"),
         TextFieldSpec(KEY_FAKE_PLATFORM, "ro.board.platform", "留空=跟随 Hardware"),
         TextFieldSpec(KEY_FAKE_TEMP, "设备温度（摄氏度）", "0~120"),
@@ -879,6 +976,23 @@ object XpConfig {
         KEY_FAKE_CPUINFO_HW to "",
         KEY_FAKE_PLATFORM to "",
         KEY_FAKE_GPU to "",
+        KEY_FAKE_GPU_VENDOR to "",
+        KEY_FAKE_GPU_GL_VERSION to "",
+        KEY_FAKE_GPU_GLSL to "",
+        KEY_FAKE_GPU_VK_API to "",
+        KEY_FAKE_GPU_DRIVER to "",
+        KEY_FAKE_GPU_VENDOR_ID to "",
+        KEY_FAKE_GPU_DEVICE_ID to "",
+        KEY_FAKE_GPU_MEMORY_MB to DEF_GPU_MEMORY_MB,
+        KEY_FAKE_GPU_MAX_TEX to DEF_GPU_MAX_TEX,
+        KEY_FAKE_GPU_MAX_CUBE to DEF_GPU_MAX_TEX,
+        KEY_FAKE_GPU_MAX_LAYERS to DEF_GPU_MAX_LAYERS,
+        KEY_FAKE_GPU_PUSH to DEF_GPU_PUSH,
+        KEY_FAKE_CPU_ENABLE to false,
+        KEY_FAKE_CPU_MODE to CPU_MODE_PRESET,
+        KEY_FAKE_CPU_PRESET to 0,
+        KEY_FAKE_CPU_CUSTOM to "",
+        KEY_FAKE_CPU_CORES to 8,
         KEY_FAKE_TEMP_ENABLE to false,
         KEY_FAKE_TEMP to DEF_TEMP,
         KEY_FAKE_BATTERY_ENABLE to false,
@@ -1031,7 +1145,7 @@ object XpConfig {
         "halt" to "Runtime.halt",
         "signal" to "Process.sendSignal / Os.kill(SIGKILL)",
         "finish" to "finishAffinity / finishAndRemoveTask",
-        "npe" to "制造 NullPointerException 走系统崩溃流程",
+        "npe" to "制造 NullPointerException",
         "exec" to "逐个 kill -9 本应用各进程 PID",
     )
 
@@ -1042,8 +1156,8 @@ object XpConfig {
 
     val ACC_SCOPE_OPTIONS: List<String> = listOf(
         "只关闭服务",
-        "关闭 + 全部破坏",
-        "只运行 hook 点",
+        "关闭 + 全部钩子",
+        "只运行钩子",
     )
 
     
@@ -1148,8 +1262,7 @@ object XpConfig {
                 "android.permission.READ_MEDIA_IMAGES",
                 "android.permission.READ_MEDIA_VIDEO",
                 "android.permission.READ_MEDIA_AUDIO",
-                "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-                
+                "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",                
                 "android.permission.ACCESS_MEDIA_LOCATION",
             ),
             fakeData = true,
@@ -1305,18 +1418,18 @@ object XpConfig {
         Triple(
             KEY_FILE_OP_INSERT,
             "禁用创建文件记录（ContentResolver.insert）",
-            "向 MediaStore.Downloads 插入一条记录拿到新文件的 Uri —— 这是「创建」动作的起点，关掉它文件就生不出来",
+            " ",
         ),
         Triple(
             KEY_FILE_OP_WRITE,
             "禁用写入文件内容（openOutputStream 等）",
             "openOutputStream / openAssetFileDescriptor / openFileDescriptor / openFile，" +
-                    "用上一步的 Uri 打开输出流写真实数据",
+                    " ",
         ),
         Triple(
             KEY_FILE_OP_READ,
             "禁用读取文件内容（openInputStream）",
-            "读取自己或别处的文件内容；默认关闭（一般只想禁写不禁读）",
+            "读取自己或别处的文件内容；默认关闭",
         ),
         Triple(
             KEY_FILE_OP_QUERY,

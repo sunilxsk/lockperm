@@ -77,6 +77,35 @@ internal object BuildRandom {
     )
 
     
+
+    
+    private data class GpuNumbers(
+        val vendor: String, val glVersion: String, val glsl: String, val vkApi: String,
+        val driver: String, val vendorId: String, val deviceId: String,
+        val memoryMb: Int, val maxTex: Int, val layers: Int, val push: Int,
+    )
+
+    private fun gpuNumbersFor(gpu: String): GpuNumbers {
+        val g = gpu.uppercase()
+        return when {
+            g.contains("ADRENO") -> GpuNumbers(
+                "Qualcomm", "OpenGL ES 3.2 V@0502.0", "OpenGL ES GLSL ES 3.20",
+                "1.1.0", "0x8020000", "0x5143", "0x72120000",
+                12228, 16384, 2048, 256,
+            )
+            g.contains("MALEOON") -> GpuNumbers(
+                "HiSilicon", "OpenGL ES 3.2 V@0502.0", "OpenGL ES GLSL ES 3.20",
+                "1.0.0", "0x1000000", "0x13B6", "0x9000000",
+                8192, 16384, 2048, 256,
+            )
+            else -> GpuNumbers(  
+                "ARM", "OpenGL ES 3.2 v1.r32p1", "OpenGL ES GLSL ES 3.20",
+                "1.1.0", "0x2000000", "0x13B5", "0x72120000",
+                7469, 16384, 4096, 256,
+            )
+        }
+    }
+
     fun generate(): Map<String, String> {
         val p = PROFILES[RANDOM.nextInt(PROFILES.size)]
         val brand = p.brand
@@ -107,6 +136,20 @@ internal object BuildRandom {
         out[XpConfig.KEY_FAKE_CPUINFO_HW] = p.soc
         out[XpConfig.KEY_FAKE_PLATFORM] = p.platform
         out[XpConfig.KEY_FAKE_GPU] = p.gpu
+        
+        val g = gpuNumbersFor(p.gpu)
+        out[XpConfig.KEY_FAKE_GPU_VENDOR] = g.vendor
+        out[XpConfig.KEY_FAKE_GPU_GL_VERSION] = g.glVersion
+        out[XpConfig.KEY_FAKE_GPU_GLSL] = g.glsl
+        out[XpConfig.KEY_FAKE_GPU_VK_API] = g.vkApi
+        out[XpConfig.KEY_FAKE_GPU_DRIVER] = g.driver
+        out[XpConfig.KEY_FAKE_GPU_VENDOR_ID] = g.vendorId
+        out[XpConfig.KEY_FAKE_GPU_DEVICE_ID] = g.deviceId
+        out[XpConfig.KEY_FAKE_GPU_MEMORY_MB] = g.memoryMb.toString()
+        out[XpConfig.KEY_FAKE_GPU_MAX_TEX] = g.maxTex.toString()
+        out[XpConfig.KEY_FAKE_GPU_MAX_CUBE] = g.maxTex.toString()
+        out[XpConfig.KEY_FAKE_GPU_MAX_LAYERS] = g.layers.toString()
+        out[XpConfig.KEY_FAKE_GPU_PUSH] = g.push.toString()
         out[XpConfig.KEY_FAKE_SDK_INT] = sdk.toString()
         out[XpConfig.KEY_BUILD_FINGERPRINT] = fingerprint
         out[XpConfig.KEY_BUILD_ID] = id

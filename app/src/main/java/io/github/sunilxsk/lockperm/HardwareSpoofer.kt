@@ -22,6 +22,7 @@ internal class HardwareSpoofer(
     private val GL_RENDERER = 0x1F01
     private val GL_VERSION = 0x1F02
     private val GL_SHADING_LANGUAGE_VERSION = 0x8B8C
+    private val EGL_VENDOR = 0x3053
     private val EGL_RENDERER = 0x305D
 
     fun install() {
@@ -39,13 +40,63 @@ internal class HardwareSpoofer(
             hookIntentExtras()
         }
         if (cfg.exGpu.isNotEmpty()) {
+            gpuName = cfg.exGpu
+            gpuVendor = cfg.exGpuVendor.ifEmpty { XpConfig.gpuVendor(cfg.exGpu) }
+            gpuGlVersion = cfg.exGpuGlVersion.ifEmpty { "OpenGL ES 3.2 V@0502.0" }
+            gpuGlsl = cfg.exGpuGlsl.ifEmpty { "OpenGL ES GLSL ES 3.20" }
+
+            val lim = LinkedHashMap<Int, Int>()
+            if (cfg.exGpuMaxTex > 0) {
+                lim[GL_MAX_TEXTURE_SIZE] = cfg.exGpuMaxTex
+                lim[GL_MAX_RENDERBUFFER_SIZE] = cfg.exGpuMaxTex
+            }
+            if (cfg.exGpuMaxCube > 0) lim[GL_MAX_CUBE_MAP_TEXTURE_SIZE] = cfg.exGpuMaxCube
+            if (cfg.exGpuMaxLayers > 0) lim[GL_MAX_ARRAY_TEXTURE_LAYERS] = cfg.exGpuMaxLayers
+            
+            if (cfg.exGpuMaxTex >= 8192) {
+                lim[GL_MAX_TEXTURE_IMAGE_UNITS] = 16
+                lim[GL_MAX_VERTEX_ATTRIBS] = 16
+            }
+            glIntOverrides = lim
+
             hookGl()
             hookEgl()
+            hookGlIntegerv()
         }
         logInfo("hardware spoofer installed (gpu=${cfg.exGpu}, temp=${cfg.exTempEnable}, batt=${cfg.exBatteryEnable})")
     }
 
     
+
+    
+
+
+
+
+
+
+
+
+    @Volatile
+    private var gpuName = ""
+    @Volatile
+    private var gpuVendor = ""
+    @Volatile
+    private var gpuGlVersion = ""
+    @Volatile
+    private var gpuGlsl = ""
+
+    
+    @Volatile
+    private var glIntOverrides: Map<Int, Int> = emptyMap()
+
+    
+    private val GL_MAX_TEXTURE_SIZE = 0x0D33
+    private val GL_MAX_CUBE_MAP_TEXTURE_SIZE = 0x851C
+    private val GL_MAX_RENDERBUFFER_SIZE = 0x84E8
+    private val GL_MAX_ARRAY_TEXTURE_LAYERS = 0x88FF
+    private val GL_MAX_TEXTURE_IMAGE_UNITS = 0x8872
+    private val GL_MAX_VERTEX_ATTRIBS = 0x8869
 
     private fun hookGl() {
         val names = listOf(
@@ -66,27 +117,27 @@ internal class HardwareSpoofer(
             "javax.microedition.khronos.opengles.GL11Ext",
         )
         names.forEach { name ->
-            val c = loadClassAnywhere(name) ?: return@forEach
+            
+            val c = loadClassInit(name) ?: return@forEach
             c.declaredMethods.filter {
                 it.name == "glGetString" &&
                         it.parameterTypes.size == 1 &&
                         it.parameterTypes[0] == INT_TYPE
             }.forEach { m ->
                 hookMethod(m) { chain ->
-                    val cfg = snapshot()
-                    val gpu = cfg.exGpu
+                    val gpu = gpuName
                     if (gpu.isEmpty()) return@hookMethod chain.proceed()
                     when (chain.getArg(0) as? Int) {
                         GL_RENDERER -> gpu
-                        GL_VENDOR -> XpConfig.gpuVendor(gpu)
-                        GL_VERSION -> "OpenGL ES 3.2 V@0502.0"
-                        GL_SHADING_LANGUAGE_VERSION -> "OpenGL ES GLSL ES 3.20"
+                        GL_VENDOR -> gpuVendor
+                        GL_VERSION -> gpuGlVersion
+                        GL_SHADING_LANGUAGE_VERSION -> gpuGlsl
                         else -> chain.proceed()
                     }
                 }
             }
         }
-        logInfo("gl renderer hooked")
+        logInfo("gl renderer hooked -> $gpuName")
     }
 
     private fun hookEgl() {
@@ -96,17 +147,74 @@ internal class HardwareSpoofer(
             "javax.microedition.khronos.egl.EGL10",
             "javax.microedition.khronos.egl.EGL11",
         ).forEach { name ->
-            val c = loadClassAnywhere(name) ?: return@forEach
+            val c = loadClassInit(name) ?: return@forEach
             c.declaredMethods.filter { it.name == "eglQueryString" && it.parameterTypes.size == 2 }
                 .forEach { m ->
                     hookMethod(m) { chain ->
-                        val cfg = snapshot()
-                        val gpu = cfg.exGpu
+                        val gpu = gpuName
                         if (gpu.isEmpty()) return@hookMethod chain.proceed()
-                        if (chain.getArg(1) as? Int == EGL_RENDERER) gpu else chain.proceed()
+                        when (chain.getArg(1) as? Int) {
+                            EGL_RENDERER -> gpu
+                            EGL_VENDOR -> gpuVendor.ifEmpty { XpConfig.gpuVendor(gpu) }
+                            else -> chain.proceed()
+                        }
                     }
                 }
         }
+    }
+
+    
+
+
+
+    private fun hookGlIntegerv() {
+        if (glIntOverrides.isEmpty()) return
+        listOf(
+            "android.opengl.GLES10",
+            "android.opengl.GLES11",
+            "android.opengl.GLES20",
+            "android.opengl.GLES30",
+            "android.opengl.GLES31",
+            "android.opengl.GLES32",
+            "android.opengl.GLES30Ext",
+            "com.google.android.gles_jni.GLImpl",
+            "javax.microedition.khronos.opengles.GL10",
+            "javax.microedition.khronos.opengles.GL11",
+        ).forEach { name ->
+            val c = loadClassInit(name) ?: return@forEach
+            c.declaredMethods.filter {
+                it.name == "glGetIntegerv" && it.parameterTypes.size == 2 &&
+                        it.parameterTypes[0] == INT_TYPE
+            }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val pname = chain.getArg(0) as? Int ?: return@hookMethod chain.proceed()
+                    val want = glIntOverrides[pname] ?: return@hookMethod chain.proceed()
+                    chain.proceed()
+                    writeIntOut(chain.getArg(1), want)
+                    null
+                }
+            }
+        }
+        logInfo("gl limits hooked (${glIntOverrides.size} entries)")
+    }
+
+    
+    private fun writeIntOut(target: Any?, value: Int) {
+        when (target) {
+            is IntArray -> if (target.isNotEmpty()) target[0] = value
+            is java.nio.IntBuffer -> {
+                val pos = target.position()
+                if (pos < target.limit()) target.put(pos, value)
+            }
+        }
+    }
+
+    
+    private fun loadClassInit(name: String): Class<*>? {
+        runCatching { return Class.forName(name) }
+        runCatching { return Class.forName(name, true, classLoader) }
+        runCatching { return Class.forName(name, true, ClassLoader.getSystemClassLoader()) }
+        return runCatching { Class.forName(name, true, Object::class.java.classLoader) }.getOrNull()
     }
 
     

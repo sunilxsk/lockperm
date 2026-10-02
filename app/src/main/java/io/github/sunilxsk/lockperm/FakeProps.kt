@@ -126,9 +126,19 @@ internal object FakeProps {
         }
 
         
-        val soc = cfg.exCpuInfoHw.ifEmpty { bv["SOC_MODEL"].orEmpty() }
-        val platform = cfg.exPlatform.ifEmpty { bv["HARDWARE"].orEmpty().ifEmpty { soc } }
-        val hw = bv["HARDWARE"].orEmpty().ifEmpty { platform.ifEmpty { soc } }
+        
+        
+        val cpuPreset = if (cfg.exCpuEnable && cfg.exCpuMode == XpConfig.CPU_MODE_PRESET) {
+            XpConfig.CPU_PRESETS.getOrNull(cfg.exCpuPreset)
+        } else {
+            null
+        }
+        val soc = cpuPreset?.soc
+            ?: cfg.exCpuInfoHw.ifEmpty { bv["SOC_MODEL"].orEmpty() }
+        val platform = cpuPreset?.board
+            ?: cfg.exPlatform.ifEmpty { bv["HARDWARE"].orEmpty().ifEmpty { soc } }
+        val hw = cpuPreset?.soc
+            ?: bv["HARDWARE"].orEmpty().ifEmpty { platform.ifEmpty { soc } }
         put("ro.soc.model", soc)
         put("ro.soc.manufacturer", XpConfig.socVendor(soc))
         put("ro.hardware", hw)
@@ -275,23 +285,38 @@ internal object FakeProps {
 
 
 
+
+
+
     fun cpuInfo(cfg: XpState.Snapshot): String {
+        if (!cfg.exCpuEnable && cfg.exCpuInfoHw.isEmpty()) return ""
+
+        if (cfg.exCpuEnable && cfg.exCpuMode == XpConfig.CPU_MODE_CUSTOM) {
+            val custom = cfg.exCpuCustom
+            if (custom.isNotBlank()) return custom
+        }
+        if (cfg.exCpuEnable && cfg.exCpuMode == XpConfig.CPU_MODE_PRESET) {
+            XpConfig.CPU_PRESETS.getOrNull(cfg.exCpuPreset)?.let { return it.cpuinfo }
+        }
+
         val hw = cpuHardware(cfg)
         if (hw.isEmpty()) return ""
         val raw: String = FileSpoofer.readRaw("/proc/cpuinfo") ?: ""
-        if (raw.isBlank()) return syntheticCpuInfo(hw)
+        if (raw.isBlank()) return syntheticCpuInfo(hw, cfg.exCpuCores)
         return raw.split("\n").joinToString("\n") { line: String ->
             if (line.startsWith("Hardware")) "Hardware\t: $hw" else line
         }
     }
 
-    private fun syntheticCpuInfo(hw: String): String {
+    private fun syntheticCpuInfo(hw: String, cores: Int): String {
+        val n = cores.coerceIn(1, 32)
         val sb = StringBuilder()
-        for (i in 0 until 8) {
+        val feats = "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp " +
+                "cpuid asimdrdm lrcpc dcpop asimddp"
+        for (i in 0 until n) {
             sb.append("processor\t: $i\n")
             sb.append("BogoMIPS\t: 38.40\n")
-            sb.append("Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp " +
-                    "asimdhp cpuid asimdrdm lrcpc dcpop asimddp\n")
+            sb.append("Features\t: $feats\n")
             sb.append("CPU implementer\t: 0x41\n")
             sb.append("CPU architecture: 8\n")
             sb.append("CPU variant\t: 0x2\n")

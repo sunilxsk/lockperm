@@ -34,7 +34,33 @@ internal object NativePayload {
         if (cfg.nativeAntiDetect) sb.append("W\t1\n")
         if (kernel.isNotEmpty()) sb.append("K\t").append(kernel).append('\n')
         if (arch.isNotEmpty()) sb.append("A\t").append(arch).append('\n')
-        if (cfg.exGpu.isNotEmpty()) sb.append("G\t").append(cfg.exGpu).append('\n')
+        if (cfg.exGpu.isNotEmpty()) {
+            sb.append("G\t").append(cfg.exGpu).append('\n')
+            
+            val gv = cfg.exGpuVendor.ifEmpty { XpConfig.gpuVendor(cfg.exGpu) }
+            sb.append("g\tvendor\t").append(gv).append('\n')
+            val glVer = cfg.exGpuGlVersion.ifEmpty { "OpenGL ES 3.2 V@0502.0" }
+            sb.append("g\tglversion\t").append(glVer).append('\n')
+            val glsl = cfg.exGpuGlsl.ifEmpty { "OpenGL ES GLSL ES 3.20" }
+            sb.append("g\tglsl\t").append(glsl).append('\n')
+            if (cfg.exGpuVkApi.isNotEmpty()) {
+                sb.append("g\tvkapi\t").append(XpConfig.vkApiVersion(cfg.exGpuVkApi)).append('\n')
+            }
+            if (cfg.exGpuDriver.isNotEmpty()) {
+                sb.append("g\tdriver\t").append(XpConfig.hexInt(cfg.exGpuDriver)).append('\n')
+            }
+            if (cfg.exGpuVendorId.isNotEmpty()) {
+                sb.append("g\tvendorid\t").append(XpConfig.hexInt(cfg.exGpuVendorId)).append('\n')
+            }
+            if (cfg.exGpuDeviceId.isNotEmpty()) {
+                sb.append("g\tdeviceid\t").append(XpConfig.hexInt(cfg.exGpuDeviceId)).append('\n')
+            }
+            sb.append("g\tmemory\t").append(cfg.exGpuMemoryMb).append('\n')
+            sb.append("g\tmaxdim\t").append(cfg.exGpuMaxTex).append('\n')
+            sb.append("g\tmaxcube\t").append(cfg.exGpuMaxCube).append('\n')
+            sb.append("g\tlayers\t").append(cfg.exGpuMaxLayers).append('\n')
+            sb.append("g\tpush\t").append(cfg.exGpuPush).append('\n')
+        }
         if (!cacheDir.isNullOrEmpty()) sb.append("D\t").append(cacheDir).append('\n')
 
         
@@ -92,11 +118,9 @@ internal object NativePayload {
         }
 
         
-        if (cfg.exCpuInfoHw.isNotEmpty() || cfg.buildValues["SOC_MODEL"] != null) {
-            val content = runCatching { FakeProps.cpuInfo(cfg) }.getOrDefault("")
-            if (content.isNotEmpty()) {
-                sb.append("C\t/proc/cpuinfo\t").append(escape(content)).append('\n')
-            }
+        val cpuContent = runCatching { FakeProps.cpuInfo(cfg) }.getOrDefault("")
+        if (cpuContent.isNotEmpty()) {
+            sb.append("C\t/proc/cpuinfo\t").append(escape(cpuContent)).append('\n')
         }
 
         if (kernel.isNotEmpty()) {

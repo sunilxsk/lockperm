@@ -175,13 +175,12 @@ fun AboutPage(service: XposedService?) {
                 Text(
                     "一个基于 libxposed API 101 的 Xposed 模块。" +
                             "它把「伪装」和「防护」两件事放在一起：" +
-                            "伪装负责让应用看到你想让它看到的东西（Android_ID、UA、注入脚本、权限状态），" +
-                            "防护负责阻止应用滥用权限（无障碍、悬浮窗、壁纸、自杀式闪退）。",
+                            "伪装负责改变应用读到的内容（Android_ID、UA、注入脚本、权限状态），" +
+                            "防护负责阻止应用滥用权限（无障碍、悬浮窗、壁纸、闪退）。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    "所有功能都以作用域为单位生效：在「应用」页勾选目标应用，" +
-                            "再到「伪装 / 防护」页配置即可，不需要为每个应用单独配一套。",
+                    "在「应用」页勾选目标应用，再到「伪装 / 防护」页配置即可。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -223,43 +222,11 @@ fun AboutPage(service: XposedService?) {
                     "· 🚫禁止对系统进程、金融、游戏、社交类 App 使用，否则后果自负🈲",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                )                
             }
         }
 
-        
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    "注意事项",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                NOTICES.forEach { (title, body) ->
-                    Column {
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            body,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
+
 
         
         Card(
@@ -555,7 +522,7 @@ private data class OssLicense(
 
 private val OPEN_SOURCE_LICENSES: List<OssLicense> = listOf(
     OssLicense(
-        "Dobby（inline hook 框架）",
+        "Dobby",
         "Apache-2.0",
         "https://github.com/jmpews/Dobby",
     ),
@@ -645,8 +612,7 @@ private fun NativeHookCard(cfg: XpConfigState) {
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SwitchRow(
-                title = "反 hook 检测",
-                subtitle = "让读取磁盘库文件的结果与内存一致，通过「内存 / 磁盘比对」类检测",
+                title = "测试检测",
                 checked = cfg.bool(XpConfig.KEY_NATIVE_ANTI_DETECT, XpConfig.DEF_NATIVE_ANTI_DETECT),
                 onCheckedChange = { cfg.put(XpConfig.KEY_NATIVE_ANTI_DETECT, it) },
             )
@@ -655,24 +621,13 @@ private fun NativeHookCard(cfg: XpConfigState) {
                 buildString {
                     append("so 加载：")
                     append(if (soOk) "成功" else "失败")
-                    if (ver.isNotEmpty()) append("　$ver")
+                    if (ver.isNotEmpty()) append("$ver")
                     
                     if (hookN > 0) append("　已装 $hookN 个钩子")
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = if (soOk) MaterialTheme.colorScheme.onSurfaceVariant
                 else MaterialTheme.colorScheme.error,
-            )
-            HintText(
-                "反 hook 检测：没啥用😇"
-            )
-            HintText(
-                "Native 层补的是 Java 钩不到的那部分：\n" +
-                        "· __system_property_get —— NDK 读属性、toybox 的 getprop\n" +
-                        "· uname —— 内核版本与架构\n" +
-                        "· open / openat / fopen / access / stat —— 隐藏路径、伪造 /proc 文件内容\n" +
-                        "配置与 Java 层完全同源：伪装页里没开的项，native 侧也不会拦。" +
-                        "改完需要重启目标应用才生效。"
             )
         }
     }
@@ -699,14 +654,6 @@ private fun AppearanceCard() {
                 options = listOf("默认", "动态取色", "自定义"),
                 selectedIndex = mode,
                 onSelect = { UiSettings.setThemeMode(context, it) },
-            )
-            HintText(
-                if (android.os.Build.VERSION.SDK_INT < 31) {
-                    "当前系统在 Android 12 以下，不支持动态取色，选它会自动回退到下面的自定义色。"
-                } else {
-                    "动态取色会跟随系统壁纸取色（Android 12+）；自定义可以自己挑一个主题色，" +
-                            "整套界面的主色、容器色、次级色都会跟着变。"
-                }
             )
             if (mode != XpConfig.THEME_DEFAULT) {
                 HorizontalDivider(color = cs.outlineVariant)
@@ -811,10 +758,6 @@ private fun IconCard() {
                 selectedIndex = UiSettings.appIcon,
                 onSelect = { UiSettings.setAppIcon(context, it) },
             )
-            HintText(
-                "利用系统自带的 activity-alias 机制切换，不需要重新安装应用。" +
-                        "切换后桌面一般几秒内会刷新，个别桌面需要重启或重新加载才能看到。"
-            )
         }
     }
 }
@@ -871,8 +814,8 @@ private fun ScaleCard() {
                 }
             }
             HintText(
-                "只影响「防护功能 / 伪装」这两个配置页里组件的显示大小，可以缩小也可以放大，" +
-                        "默认 93%（跟原来的大小一致）。"
+                "只影响「防护功能 / 伪装」这两个配置页里组件的显示大小，" +
+                        "默认 93%。"
             )
         }
     }
@@ -952,12 +895,6 @@ private fun BackupCard(service: XposedService?) {
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
-            Text(
-                "把整套配置（含每个应用单独的设置）导出成一个 JSON 文件，" +
-                        "换机或重装后直接恢复，不用一条条重配。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
@@ -990,57 +927,6 @@ private fun BackupCard(service: XposedService?) {
 private const val SELF_LICENSE_NAME = "GNU AGPL v3.0"
 private const val SELF_LICENSE_URL = "https://www.gnu.org/licenses/agpl-3.0.html"
 private const val SELF_ABC_URL = "https://github.com/sunilxsk/LockPerm"
-
-private val NOTICES: List<Pair<String, String>> = listOf(
-    "阻止闪退 与 定时退出 不要一起开" to
-            "「阻止闪退 / 自杀」从「中」档起就会吞掉未捕获异常，" +
-            "而「定时退出」里的空指针闪退正是靠异常退出的，两者同时开会互相打架：" +
-            "异常被吞掉、退不出去，最后只能靠硬杀兜底。要定时退出就先关掉阻止闪退。",
-    "掌控悬浮窗只在目标软件自己的界面上生效" to
-            "它不是安卓「显示在其他应用上层」权限创建的悬浮窗，不需要任何权限；" +
-            "代价是切到后台、锁屏或换一个应用就看不见了。",
-    "权限伪装的第 2 个开关只影响「读取」" to
-            "它决定应用真的用标准方法去读时拿到什么：勾上就返回虚构内容" +
-            "（通讯录假人、存储假文件、短信假记录、电话假号码、位置固定坐标），" +
-            "不勾则可能拿到空值。摄像头要真实画面、麦克风要真实音频做不到，所以这两项没有第 2 个开关。",
-    "设备管理员「全部合一」会持续解除身份" to
-            "开启后每 4 秒尝试一次 removeActiveAdmin / clearDeviceOwnerApp，" +
-            "如果目标本身就是正经的设备管理器应用，可能出现反复去激活、日志刷屏。",
-    "无障碍破坏依赖安卓标准接口" to
-            "Hook 的是 AccessibilityService / AccessibilityNodeInfo / AccessibilityEvent 的公开接口，" +
-            "深度定制 ROM 或被目标应用自己做了混淆绕过的场景，可能部分子功能失效。",
-    "防护类功能可能影响目标应用正常使用" to
-            "禁用无障碍能力、拦截悬浮窗、阻断壁纸接口都可能让目标应用的部分功能不可用，请按需开启。",
-    "阻止应用执行命令 与 退出方式里的「执行命令」互斥" to
-            "两者只能开一个：开启前者后，退出方式会自动换成「杀死进程」；" +
-            "反过来勾选「执行命令」，前者也会被自动关掉（退出时模块会临时放行自己的命令）。",
-    "掌控面板里的一键功能是点一下才生效" to
-            "面板上的「立即阻止修改壁纸 / 立即阻止创建悬浮窗 / 无障碍全部合一 / 设备管理员全部合一」" +
-            "都是点击那一刻才把 Hook 装上去，进入应用时不会预先开启，也不需要重启目标应用。",
-    "无障碍的按键 / 屏幕控制是重点防护对象" to
-            "无障碍服务可以声明 FLAG_REQUEST_FILTER_KEY_EVENTS 优先拿到按键，" +
-            "也能靠 FLAG_REQUEST_TOUCH_EXPLORATION_MODE 让系统进入触摸探测模式，" +
-            "于是出现「按音量键没反应、系统音量条不弹、屏幕点不动」。" +
-            "模块除了拦 onKeyEvent / onGesture / onMotionEvent，还会把服务声明里的这些 flag 抹掉。",
-    "权限伪装支持按应用单独配置" to
-            "伪装页只留总开关；打开后到「应用」页，已加入作用域的应用会多出一个「权限配置」按钮，" +
-            "里面可以单独勾选它要伪装哪些权限。没加入作用域的应用不会有这个按钮。",
-    "阻止控制音量 / 闪光灯 / 振动 只针对应用" to
-            "Hook 的是目标应用进程里的调用，你自己用系统音量条、系统手电筒、来电振动都不受影响。",
-    "禁止创建文件 会按类目分别拦截" to
-            "MediaStore 那条链路（insert / openOutputStream / update / query / delete）" +
-            "只作用于媒体库 Uri，应用自己的 ContentProvider 不受影响；" +
-            "java.io.File 与 java.nio.file.Files 只作用于 /sdcard、/storage、/mnt 下的公共存储。" +
-            "只想让它读不想让它写的话，把「写入」以外的关掉即可。",
-    "隐藏应用列表 改的是枚举结果" to
-            "只影响目标应用调用 getInstalledApplications / getInstalledPackages 拿到的列表，" +
-            "不是真的卸载或冻结应用；白名单模式下名单里没有的都会被隐藏，请注意别把自己需要的也漏掉。",
-    "改完配置要强制停止目标应用再打开" to
-            "模块代码与配置的生效都需要重启目标应用进程。",
-    "崩溃日志位置" to
-            "/storage/emulated/0/Android/data/{目标包名}/files/${XpConfig.CRASH_LOG_NAME}，" +
-            "需要「崩溃时写入应用私有目录」处于开启状态。",
-)
 
 
 @Composable
