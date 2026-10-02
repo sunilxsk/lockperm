@@ -25,6 +25,13 @@ internal class CommandBlocker(
 ) : HookSupport(module, prefs, classLoader) {
 
     fun install() {
+        
+        
+        
+        if (!shouldBlock()) {
+            logInfo("command blocker skipped (off)")
+            return
+        }
         hookRuntimeExec()
         hookProcessBuilder()
         hookProcessImpl()

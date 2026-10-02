@@ -27,6 +27,12 @@ internal class HardwareSpoofer(
 
     fun install() {
         val cfg = snapshot()
+        
+        val on = cfg.enableBuild
+        if (!on) {
+            logInfo("hardware spoofer skipped (master off)")
+            return
+        }
 
         if (cfg.exTempEnable) {
             val t = cfg.exTemp.coerceIn(0, 120)

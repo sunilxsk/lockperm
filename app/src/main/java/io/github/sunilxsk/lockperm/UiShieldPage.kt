@@ -45,6 +45,9 @@ fun ShieldConfigContent(cfg: XpConfigState, enabled: Boolean) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        
+        
+        NativeStatusBar(cfg)
         ActiveShield(cfg, enabled)
         Spacer(Modifier.height(24.dp))
     }
@@ -230,8 +233,7 @@ private fun WifiFakeFeatureCard(cfg: XpConfigState, active: Boolean) {
             ) { Text("清空") }
         }
         HintText(
-            "留空时不改动扫描结果。填写后将使用所填列表完全替换。" +
-                    "字段名用 | 分隔，后两项可省略：HOME-WIFI|02:1a:2b:3c:4d:5e|-42|[WPA2-PSK-CCMP][ESS]"
+            "留空时不改动扫描结果。"
         )
     }
 }
@@ -305,13 +307,6 @@ private fun ExitFeatureCard(cfg: XpConfigState, active: Boolean) {
                     shown.joinToString("、") { key ->
                         XpConfig.EXIT_METHODS.firstOrNull { it.first == key }?.second ?: key
                     }
-        )
-        HintText(
-            if (parallel) {
-                "当前：所有退出方式同时启动。"
-            } else {
-                "当前：按勾选顺序依次执行，每种之间留 80ms。"
-            }
         )
         
     }
@@ -400,16 +395,6 @@ private fun AccessibilityFeatureCard(cfg: XpConfigState, active: Boolean) {
             enabled = statusSpoof && active,
             onSelect = { cfg.put(XpConfig.KEY_ACC_STATUS_VALUE, it == 1) },
         )
-        HintText(
-            if (!statusSpoof) {
-                "未开启：应用读到的就是手机上的真实状态。"
-            } else if (!statusValue) {
-                "应用查询时会得到「无障碍未开启」。这只是汇报值，下面勾选的限制功能依然照常拦截，" +
-                        "两者互不干扰。"
-            } else {
-                "应用查询时会得到「无障碍已开启」。同样只是汇报值，不会真的把权限给它。"
-            }
-        )
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Text(
@@ -417,7 +402,6 @@ private fun AccessibilityFeatureCard(cfg: XpConfigState, active: Boolean) {
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
         )
-        HintText("开启后应用即使拉起无障碍服务，也拿不到任何实际数据。")
 
         CheckRow(
             checked = cfg.bool(XpConfig.KEY_ACC_CAP_SCREEN, true),
@@ -505,10 +489,9 @@ private fun AccessibilityFeatureCard(cfg: XpConfigState, active: Boolean) {
         )
         HintText(
             when (scope) {
-                0 -> "只运行纯关闭无障碍：只调用 disableSelf 关掉服务，上面的子功能不可用（已禁用）。"
-                1 -> "关闭无障碍 + 全部 hook 禁用：既关服务，又把上面勾选项对应的接口全部禁用掉。"
-                else -> "只运行上面的 hook 点：完全不去关服务，只把上面勾选的接口禁用掉，" +
-                        "因此上面的「持续禁用 / 倒计时前禁用一次」会置灰。"
+                0 -> "只关闭无障碍"
+                1 -> "关闭无障碍 + 全部禁用"
+                else -> "只运行钩子"
             }
         )
     }
@@ -531,10 +514,6 @@ private fun DeviceAdminFeatureCard(cfg: XpConfigState, active: Boolean) {
         enabled = active,
         onCheckedChange = { cfg.put(XpConfig.KEY_DA_ENABLE, it) }
     ) {
-        HintText(
-            "设备管理员能做的事远不止弹窗：锁屏、改密码、擦除数据、禁用相机、静默装卸载应用、" +
-                    "配 VPN / Kiosk 模式、替其它应用批权限。下面逐个按安卓标准接口禁用掉。"
-        )
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Text(
@@ -598,7 +577,7 @@ private fun VolumeFeatureCard(cfg: XpConfigState, active: Boolean) {
         )
         HintText(
             if (master) {
-                "总开关已开：应用的一切音量调用都会被忽略（含响铃模式与静音），下面几项不再另行判断。"
+                "总开关已开：应用的一切音量调用都会被忽略，下面几项不再另行判断。"
             } else {
                 "总开关关闭时，按下面几项的勾选分别拦截。"
             }
@@ -626,9 +605,7 @@ private fun VolumeFeatureCard(cfg: XpConfigState, active: Boolean) {
         )
         HintText(
             if (lock) {
-                "当前：每 0.2 秒把所有音量流设到 ${lockValue.coerceIn(1, 100)}%。" +
-                        "固定音量和「禁用」是两种思路 —— 固定音量不拦应用改音量，" +
-                        "而是改完立刻把它顶回来，比单纯拦掉更彻底。"
+                "当前为固定音量 ${lockValue.coerceIn(1, 100)}%。"
             } else {
                 "固定音量关闭时，按上面几项的勾选分别拦截。"
             }
@@ -651,9 +628,6 @@ private fun VolumeFeatureCard(cfg: XpConfigState, active: Boolean) {
             checked = !lock && (master || cfg.bool(XpConfig.KEY_VOLUME_BLOCK_MUTE, true)),
             enabled = on && !master && !lock,
             onCheckedChange = { cfg.put(XpConfig.KEY_VOLUME_BLOCK_MUTE, it) },
-        )
-        HintText(
-            "覆盖系统音量调节与播放器音量两条路，应用无法自行改变音量或切换响铃模式。"
         )
         HintText("仅拦截应用主动调节；通过系统音量条手动调节不受影响（系统进程不在作用域内）。")
     }
@@ -680,13 +654,10 @@ private fun ClipboardFeatureCard(cfg: XpConfigState, active: Boolean) {
         )
         HintText(
             when (mode) {
-                0 -> "只禁止读：应用读剪贴板一律拿到空（hasPrimaryClip 返回 false、getText 返回 null），写入不受影响。"
-                1 -> "只禁止写：应用写入会被直接丢弃，读取不受影响。"
-                else -> "全部禁止：既读不到也写不进。"
+                0 -> "只禁止读"
+                1 -> "只禁止写"
+                else -> "全部禁止"
             }
-        )
-        HintText(
-            "覆盖读取、写入与清空剪贴板的所有标准操作。"
         )
     }
 }
@@ -962,16 +933,7 @@ private fun ShizukuFeatureCard(cfg: XpConfigState, active: Boolean) {
             onCheckedChange = { cfg.put(XpConfig.KEY_SHIZUKU_BLOCK_USE, it) },
         )
         HintText(
-            "Shizuku 能让普通应用以 shell 权限执行操作，风险很高。" +
-                    "兼容 rikka.shizuku与 moe.shizuku.api。"
-        )
-        HintText(
-            "拦掉授权申请后，模块会主动回调一次「已拒绝」，" +
-                    "避免应用的界面一直卡在等待授权结果上。"
-        )
-        HintText(
-            "注意：如果目标应用把 Shizuku 相关代码做了混淆（类名 / 方法名被改名），" +
-                    "按名字匹配的这几层就匹配不上，功能可能不生效。"
+                    "兼容 rikka.shizuku与 moe.shizuku.api。混淆使功能失效"
         )
     }
 }

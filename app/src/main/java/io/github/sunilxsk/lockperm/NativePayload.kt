@@ -23,6 +23,7 @@ package io.github.sunilxsk.lockperm
 
 
 
+
 internal object NativePayload {
 
     fun build(cfg: XpState.Snapshot, cacheDir: String?): String {
@@ -30,6 +31,11 @@ internal object NativePayload {
 
         val kernel = FakeProps.kernelVersion(cfg)
         val arch = FakeProps.arch(cfg)
+
+        
+        
+        sb.append("M\t").append(cfg.nativeGroups).append('\n')
+
         
         if (cfg.nativeAntiDetect) sb.append("W\t1\n")
         if (kernel.isNotEmpty()) sb.append("K\t").append(kernel).append('\n')
@@ -70,12 +76,12 @@ internal object NativePayload {
         }
 
         
-        if (cfg.exTimeEnable && cfg.exTimeOffset != 0) {
+        if (cfg.enableBuild && cfg.exTimeEnable && cfg.exTimeOffset != 0) {
             sb.append("T\t").append(cfg.exTimeOffset.toLong() * 60_000L).append('\n')
         }
 
         
-        if (cfg.exUptimeEnable) {
+        if (cfg.enableBuild && cfg.exUptimeEnable) {
             val hours = cfg.exUptimeHours.toFloatOrNull()
             if (hours != null && hours > 0f) {
                 sb.append("U\t").append((hours * 3_600_000f).toLong()).append('\n')
@@ -109,7 +115,7 @@ internal object NativePayload {
         
         
         
-        if (cfg.exUptimeEnable) {
+        if (cfg.enableBuild && cfg.exUptimeEnable) {
             val hours = cfg.exUptimeHours.toFloatOrNull()
             if (hours != null) {
                 sb.append("C\t/proc/uptime\t").append(escape(FakeProps.uptimeContent(hours)))
@@ -118,9 +124,11 @@ internal object NativePayload {
         }
 
         
-        val cpuContent = runCatching { FakeProps.cpuInfo(cfg) }.getOrDefault("")
-        if (cpuContent.isNotEmpty()) {
-            sb.append("C\t/proc/cpuinfo\t").append(escape(cpuContent)).append('\n')
+        
+        runCatching { FakeProps.cpuFiles(cfg) }.getOrDefault(emptyMap()).forEach { (p, c) ->
+            if (p.isNotEmpty() && c.isNotEmpty()) {
+                sb.append("C\t").append(p).append('\t').append(escape(c)).append('\n')
+            }
         }
 
         if (kernel.isNotEmpty()) {

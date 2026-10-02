@@ -22,9 +22,23 @@
 #include <sys/system_properties.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/uio.h>
 #include <sys/utsname.h>
 #include <time.h>
 #include <unistd.h>
+
+#define GRP_PROP (1u << 0)
+#define GRP_UNAME (1u << 1)
+#define GRP_TIME (1u << 2)
+#define GRP_FILE (1u << 3)
+#define GRP_STAT (1u << 4)
+#define GRP_DIR (1u << 5)
+#define GRP_EXEC (1u << 6)
+#define GRP_EXIT (1u << 7)
+#define GRP_NET (1u << 8)
+#define GRP_READ (1u << 9)
+#define GRP_MMAP (1u << 10)
+#define GRP_GPU (1u << 11)
 
 #include <map>
 #include <string>
@@ -47,6 +61,7 @@ namespace {
 
 volatile bool g_enabled = false;
 volatile bool g_installed = false;
+uint32_t g_groups = 0;
 
 pthread_rwlock_t g_lock = PTHREAD_RWLOCK_INITIALIZER;
 
@@ -76,10 +91,14 @@ volatile bool g_vpn_enable = false;
 volatile bool g_anti_detect = false;
 
 struct PatchRec {
-  uintptr_t addr = 0;
+  uint64_t foff = 0;
   std::vector<uint8_t> bytes;
 };
-std::vector<PatchRec> g_patches;
+
+std::map<std::string, std::vector<PatchRec> *> g_path_patches;
+std::vector<std::vector<PatchRec> *> g_patch_pool;
+
+std::map<std::string, std::string> g_basename_index;
 
 std::vector<uintptr_t> g_hook_addrs;
 
@@ -87,12 +106,19 @@ struct MapSeg {
   uintptr_t vs = 0;
   uintptr_t ve = 0;
   uint64_t foff = 0;
+  bool exec = false;
   std::string path;
 };
 std::vector<MapSeg> g_maps;
 volatile bool g_maps_ready = false;
 
 std::map<int, std::string> g_fdpath;
+
+struct SpoofFile;
+std::map<int, SpoofFile *> g_fdspoof;
+std::map<int, size_t> g_fdspoof_pos;
+
+volatile bool g_need_fdtrack = false;
 
 volatile int64_t g_time_offset_ms = 0;
 volatile bool g_time_enable = false;
@@ -225,21 +251,31 @@ int rawWriteFile(const char *path, const std::string &data) {
 
 const char *materialize(SpoofFile *f) {
   if (f == nullptr) return nullptr;
-  if (f->ready) return f->real.c_str();
-  std::string cache;
+  if (f->ready && !f->real.empty()) return f->real.c_str();
+
+  std::vector<std::string> dirs;
   pthread_rwlock_rdlock(&g_lock);
-  cache = g_cache;
+  if (!g_cache.empty()) dirs.push_back(g_cache);
   pthread_rwlock_unlock(&g_lock);
-  if (cache.empty()) return nullptr;
+  const char *tmp = getenv("TMPDIR");
+  if (tmp != nullptr && *tmp != '\0') dirs.push_back(tmp);
+  dirs.push_back("/data/local/tmp");
+  dirs.push_back("/data/local");
+
   char name[64];
   snprintf(name, sizeof(name), ".lk_%08x", fnv(f->path.c_str()));
-  f->real = cache + "/" + name;
-  if (rawWriteFile(f->real.c_str(), f->content) != 0) {
-    f->real.clear();
-    return nullptr;
+  for (size_t i = 0; i < dirs.size(); ++i) {
+    std::string p = dirs[i] + "/" + name;
+    if (rawWriteFile(p.c_str(), f->content) != 0) continue;
+    f->real = p;
+    f->ready = true;
+    pthread_rwlock_wrlock(&g_lock);
+    if (g_cache.empty()) g_cache = dirs[i];
+    pthread_rwlock_unlock(&g_lock);
+    return f->real.c_str();
   }
-  f->ready = true;
-  return f->real.c_str();
+  f->real.clear();
+  return nullptr;
 }
 
 bool spoofCommand(const char *cmd, std::string &out);
@@ -288,6 +324,7 @@ void parseMaps(const std::string &s, std::vector<MapSeg> &out) {
           seg.vs = (uintptr_t)a;
           seg.ve = (uintptr_t)b;
           seg.foff = fo;
+          seg.exec = (strchr(perm, 'x') != nullptr);
           seg.path = p;
           if (!seg.path.empty() && seg.path[0] == '/' && seg.ve > seg.vs) {
             out.push_back(seg);
@@ -313,106 +350,160 @@ void ensureMaps() {
   pthread_rwlock_unlock(&g_lock);
 }
 
+std::string baseNameOf(const std::string &p) {
+  size_t i = p.rfind('/');
+  return (i == std::string::npos) ? p : p.substr(i + 1);
+}
+
 void collectPatches() {
+  ensureMaps();
+
   pthread_rwlock_wrlock(&g_lock);
-  g_patches.clear();
-  const size_t kSample = 32;
+  g_path_patches.clear();
+  for (size_t i = 0; i < g_patch_pool.size(); ++i) g_patch_pool[i]->clear();
+  g_basename_index.clear();
+  const size_t kSample = 48;
+  size_t n = 0;
   for (size_t i = 0; i < g_hook_addrs.size(); ++i) {
     uintptr_t addr = g_hook_addrs[i];
     if (addr == 0) continue;
     if (addr < 4096) continue;
+
+    const MapSeg *best = nullptr;
+    for (size_t si = 0; si < g_maps.size(); ++si) {
+      const MapSeg &seg = g_maps[si];
+      if (addr < seg.vs || addr >= seg.ve) continue;
+      if (seg.exec) { best = &seg; break; }
+      if (best == nullptr) best = &seg;
+    }
+    if (best == nullptr) continue;
+
     PatchRec rec;
-    rec.addr = addr;
+    rec.foff = best->foff + (uint64_t)(addr - best->vs);
     rec.bytes.resize(kSample);
     memcpy(rec.bytes.data(), (const void *)addr, kSample);
-    g_patches.push_back(rec);
+
+    std::vector<PatchRec> *&vec = g_path_patches[best->path];
+    if (vec == nullptr) {
+      vec = new std::vector<PatchRec>();
+      g_patch_pool.push_back(vec);
+    }
+    vec->push_back(rec);
+    ++n;
   }
-  LOGI("anti-detect: collected %zu patched entries", g_patches.size());
+
+  std::map<std::string, int> cnt;
+  for (std::map<std::string, std::vector<PatchRec> *>::const_iterator it =
+           g_path_patches.begin();
+       it != g_path_patches.end(); ++it) {
+    ++cnt[baseNameOf(it->first)];
+  }
+  for (std::map<std::string, std::vector<PatchRec> *>::const_iterator it =
+           g_path_patches.begin();
+       it != g_path_patches.end(); ++it) {
+    const std::string &bn = baseNameOf(it->first);
+    if (cnt[bn] == 1) g_basename_index[bn] = it->first;
+  }
+  LOGI("anti-detect: collected %zu patched entries in %zu files", n,
+       g_path_patches.size());
   pthread_rwlock_unlock(&g_lock);
+}
+
+std::string fdPath(int fd) {
+  pthread_rwlock_rdlock(&g_lock);
+  std::string p;
+  std::map<int, std::string>::const_iterator it = g_fdpath.find(fd);
+  if (it != g_fdpath.end()) p = it->second;
+  pthread_rwlock_unlock(&g_lock);
+  return p;
+}
+
+void trackFd(int fd, const std::string &path, SpoofFile *spoof) {
+  if (fd < 0) return;
+  pthread_rwlock_wrlock(&g_lock);
+  if (g_need_fdtrack && !path.empty()) g_fdpath[fd] = path;
+  if (spoof != nullptr) {
+    g_fdspoof[fd] = spoof;
+    g_fdspoof_pos[fd] = 0;
+  }
+  pthread_rwlock_unlock(&g_lock);
+}
+
+SpoofFile *spoofOf(int fd) {
+  pthread_rwlock_rdlock(&g_lock);
+  SpoofFile *sf = nullptr;
+  std::map<int, SpoofFile *>::const_iterator it = g_fdspoof.find(fd);
+  if (it != g_fdspoof.end()) sf = it->second;
+  pthread_rwlock_unlock(&g_lock);
+  return sf;
+}
+
+const std::vector<PatchRec> *patchesForPath(const std::string &path) {
+  if (path.empty()) return nullptr;
+  pthread_rwlock_rdlock(&g_lock);
+  const std::vector<PatchRec> *res = nullptr;
+  std::map<std::string, std::vector<PatchRec> *>::const_iterator it =
+      g_path_patches.find(path);
+  if (it != g_path_patches.end()) {
+    res = it->second;
+  } else {
+    std::map<std::string, std::string>::const_iterator bit =
+        g_basename_index.find(baseNameOf(path));
+    if (bit != g_basename_index.end()) {
+      std::map<std::string, std::vector<PatchRec> *>::const_iterator it2 =
+          g_path_patches.find(bit->second);
+      if (it2 != g_path_patches.end()) res = it2->second;
+    }
+  }
+  pthread_rwlock_unlock(&g_lock);
+  return res;
+}
+
+const std::vector<PatchRec> *patchesForFd(int fd) {
+  return patchesForPath(fdPath(fd));
 }
 
 void syncBuffer(int fd, void *buf, size_t count, int64_t foff) {
   if (!g_enabled || !g_anti_detect) return;
   if (buf == nullptr || count == 0 || foff < 0) return;
-  if (g_patches.empty()) return;
 
-  std::string path;
-  pthread_rwlock_rdlock(&g_lock);
-  std::map<int, std::string>::const_iterator fdIt = g_fdpath.find(fd);
-  if (fdIt == g_fdpath.end()) {
-    pthread_rwlock_unlock(&g_lock);
-    return;
-  }
-  path = fdIt->second;
-  pthread_rwlock_unlock(&g_lock);
+  const std::vector<PatchRec> *ps = patchesForFd(fd);
+  if (ps == nullptr || ps->empty()) return;
 
-  if (path.empty() || path[0] != '/') return;
-  if (path.find(".so") == std::string::npos) return;
-
-  ensureMaps();
-
-  pthread_rwlock_rdlock(&g_lock);
-  for (size_t pi = 0; pi < g_patches.size(); ++pi) {
-    const PatchRec &rec = g_patches[pi];
-    for (size_t si = 0; si < g_maps.size(); ++si) {
-      const MapSeg &seg = g_maps[si];
-      if (seg.path != path) continue;
-      if (rec.addr < seg.vs || rec.addr >= seg.ve) continue;
-      int64_t poff = (int64_t)seg.foff + (int64_t)(rec.addr - seg.vs);
-      if (poff + (int64_t)rec.bytes.size() <= foff) continue;
-      if (poff >= foff + (int64_t)count) continue;
-      for (size_t i = 0; i < rec.bytes.size(); ++i) {
-        int64_t f = poff + (int64_t)i;
-        if (f < foff || f >= foff + (int64_t)count) continue;
-        ((uint8_t *)buf)[f - foff] = rec.bytes[i];
-      }
-      break;
+  for (size_t pi = 0; pi < ps->size(); ++pi) {
+    const PatchRec &rec = (*ps)[pi];
+    int64_t p = (int64_t)rec.foff;
+    if (p + (int64_t)rec.bytes.size() <= foff) continue;
+    if (p >= foff + (int64_t)count) continue;
+    for (size_t i = 0; i < rec.bytes.size(); ++i) {
+      int64_t f = p + (int64_t)i;
+      if (f < foff || f >= foff + (int64_t)count) continue;
+      ((uint8_t *)buf)[f - foff] = rec.bytes[i];
     }
   }
-  pthread_rwlock_unlock(&g_lock);
 }
 
-void syncMapped(void *addr, size_t len, int fd, int64_t foff) {
+void syncMapped(void *addr, size_t len, int fd, int64_t foff, bool shared) {
   if (!g_enabled || !g_anti_detect) return;
   if (addr == nullptr || addr == MAP_FAILED || len == 0 || fd < 0 || foff < 0) return;
-  if (g_patches.empty()) return;
+  if (shared) return;
 
-  std::string path;
-  pthread_rwlock_rdlock(&g_lock);
-  std::map<int, std::string>::const_iterator fdIt = g_fdpath.find(fd);
-  if (fdIt == g_fdpath.end()) {
-    pthread_rwlock_unlock(&g_lock);
-    return;
-  }
-  path = fdIt->second;
-  pthread_rwlock_unlock(&g_lock);
+  const std::vector<PatchRec> *ps = patchesForFd(fd);
+  if (ps == nullptr || ps->empty()) return;
 
-  if (path.empty() || path[0] != '/') return;
-  if (path.find(".so") == std::string::npos) return;
-
-  ensureMaps();
-
-  pthread_rwlock_rdlock(&g_lock);
   bool touched = false;
-  for (size_t pi = 0; pi < g_patches.size(); ++pi) {
-    const PatchRec &rec = g_patches[pi];
-    for (size_t si = 0; si < g_maps.size(); ++si) {
-      const MapSeg &seg = g_maps[si];
-      if (seg.path != path) continue;
-      if (rec.addr < seg.vs || rec.addr >= seg.ve) continue;
-      int64_t poff = (int64_t)seg.foff + (int64_t)(rec.addr - seg.vs);
-      if (poff < foff || poff >= foff + (int64_t)len) continue;
-      size_t offInMap = (size_t)(poff - foff);
-      if (offInMap + rec.bytes.size() > len) continue;
-      if (!touched) {
-        syscall(__NR_mprotect, addr, len, PROT_READ | PROT_WRITE);
-        touched = true;
-      }
-      memcpy((uint8_t *)addr + offInMap, rec.bytes.data(), rec.bytes.size());
-      break;
+  for (size_t pi = 0; pi < ps->size(); ++pi) {
+    const PatchRec &rec = (*ps)[pi];
+    int64_t p = (int64_t)rec.foff;
+    if (p < foff || p >= foff + (int64_t)len) continue;
+    size_t offInMap = (size_t)(p - foff);
+    if (offInMap + rec.bytes.size() > len) continue;
+    if (!touched) {
+      syscall(__NR_mprotect, addr, len, PROT_READ | PROT_WRITE);
+      touched = true;
     }
+    memcpy((uint8_t *)addr + offInMap, rec.bytes.data(), rec.bytes.size());
   }
-  pthread_rwlock_unlock(&g_lock);
 
   if (touched) {
     syscall(__NR_mprotect, addr, len, PROT_READ);
@@ -586,6 +677,15 @@ openat_t orig_openat = nullptr;
 openat_t orig_openat64 = nullptr;
 fopen_t orig_fopen = nullptr;
 
+std::string resolvePath(int dirfd, const char *path) {
+  if (path == nullptr) return std::string();
+  if (path[0] == '/' || dirfd == AT_FDCWD) return std::string(path);
+  std::string base = fdPath(dirfd);
+  if (base.empty()) return std::string(path);
+  if (base[base.size() - 1] != '/') base += '/';
+  return base + path;
+}
+
 int fake_open(const char *path, int flags, ...) {
   mode_t mode = 0;
   if (flags & O_CREAT) {
@@ -598,24 +698,23 @@ int fake_open(const char *path, int flags, ...) {
     errno = ENOENT;
     return -1;
   }
+  std::string abs = (path != nullptr) ? std::string(path) : std::string();
   SpoofFile *f = findSpoof(path);
   if (f != nullptr) {
     const char *rp = materialize(f);
     if (rp != nullptr) {
-      if (orig_open != nullptr) return orig_open(rp, flags, mode);
-      return (int)syscall(__NR_openat, AT_FDCWD, rp, flags, mode);
+      int fd = orig_open != nullptr
+                   ? orig_open(rp, flags, mode)
+                   : (int)syscall(__NR_openat, AT_FDCWD, rp, flags, mode);
+      trackFd(fd, abs, f);
+      return fd;
     }
   }
-  if (orig_open != nullptr) {
-    int fd = orig_open(path, flags, mode);
-    if (fd >= 0 && g_enabled && g_anti_detect && path != nullptr) {
-      pthread_rwlock_wrlock(&g_lock);
-      g_fdpath[fd] = std::string(path);
-      pthread_rwlock_unlock(&g_lock);
-    }
-    return fd;
-  }
-  return (int)syscall(__NR_openat, AT_FDCWD, path, flags, mode);
+  int fd = orig_open != nullptr
+               ? orig_open(path, flags, mode)
+               : (int)syscall(__NR_openat, AT_FDCWD, path, flags, mode);
+  trackFd(fd, abs, f);
+  return fd;
 }
 
 int fake_openat(int dirfd, const char *path, int flags, ...) {
@@ -630,21 +729,23 @@ int fake_openat(int dirfd, const char *path, int flags, ...) {
     errno = ENOENT;
     return -1;
   }
+  std::string abs = resolvePath(dirfd, path);
   SpoofFile *f = findSpoof(path);
   if (f != nullptr) {
     const char *rp = materialize(f);
-    if (rp != nullptr && orig_openat != nullptr) return orig_openat(dirfd, rp, flags, mode);
-  }
-  if (orig_openat != nullptr) {
-    int fd = orig_openat(dirfd, path, flags, mode);
-    if (fd >= 0 && g_enabled && g_anti_detect && path != nullptr) {
-      pthread_rwlock_wrlock(&g_lock);
-      g_fdpath[fd] = std::string(path);
-      pthread_rwlock_unlock(&g_lock);
+    if (rp != nullptr) {
+      int fd = orig_openat != nullptr
+                   ? orig_openat(dirfd, rp, flags, mode)
+                   : (int)syscall(__NR_openat, AT_FDCWD, rp, flags, mode);
+      trackFd(fd, abs, f);
+      return fd;
     }
-    return fd;
   }
-  return (int)syscall(__NR_openat, dirfd, path, flags, mode);
+  int fd = orig_openat != nullptr
+               ? orig_openat(dirfd, path, flags, mode)
+               : (int)syscall(__NR_openat, dirfd, path, flags, mode);
+  trackFd(fd, abs, f);
+  return fd;
 }
 
 FILE *fake_fopen(const char *path, const char *mode) {
@@ -652,12 +753,19 @@ FILE *fake_fopen(const char *path, const char *mode) {
     errno = ENOENT;
     return nullptr;
   }
+  std::string abs = (path != nullptr) ? std::string(path) : std::string();
   SpoofFile *f = findSpoof(path);
   if (f != nullptr) {
     const char *rp = materialize(f);
-    if (rp != nullptr && orig_fopen != nullptr) return orig_fopen(rp, mode);
+    if (rp != nullptr && orig_fopen != nullptr) {
+      FILE *fp = orig_fopen(rp, mode);
+      if (fp != nullptr) trackFd(fileno(fp), abs, f);
+      return fp;
+    }
   }
-  return orig_fopen != nullptr ? orig_fopen(path, mode) : nullptr;
+  FILE *fp = orig_fopen != nullptr ? orig_fopen(path, mode) : nullptr;
+  if (fp != nullptr) trackFd(fileno(fp), abs, f);
+  return fp;
 }
 
 typedef int (*access_t)(const char *, int);
@@ -1032,16 +1140,43 @@ int fake_posix_spawn(pid_t *pid, const char *path,
 
 typedef ssize_t (*read_t)(int, void *, size_t);
 typedef ssize_t (*pread_t)(int, void *, size_t, off_t);
+typedef ssize_t (*readv_t)(int, const struct iovec *, int);
 typedef void *(*mmap_t)(void *, size_t, int, int, int, off_t);
 typedef int (*close_t)(int);
+typedef long (*syscall_t)(long, ...);
+typedef ssize_t (*read_chk_t)(int, void *, size_t, size_t);
+typedef ssize_t (*pread_chk_t)(int, void *, size_t, off_t, size_t);
 
 read_t orig_read = nullptr;
 pread_t orig_pread = nullptr;
 pread_t orig_pread64 = nullptr;
+readv_t orig_readv = nullptr;
 mmap_t orig_mmap = nullptr;
 close_t orig_close = nullptr;
+syscall_t orig_syscall = nullptr;
+read_chk_t orig_read_chk = nullptr;
+pread_chk_t orig_pread_chk = nullptr;
+pread_chk_t orig_pread64_chk = nullptr;
+
+ssize_t serveSpoof(int fd, SpoofFile *sf, void *buf, size_t count) {
+  pthread_rwlock_wrlock(&g_lock);
+  size_t &p = g_fdspoof_pos[fd];
+  const std::string &c = sf->content;
+  size_t n = 0;
+  if (p < c.size()) {
+    n = c.size() - p;
+    if (n > count) n = count;
+    memcpy(buf, c.data() + p, n);
+    p += n;
+  }
+  pthread_rwlock_unlock(&g_lock);
+  return (ssize_t)n;
+}
 
 ssize_t fake_read(int fd, void *buf, size_t count) {
+  SpoofFile *sf = spoofOf(fd);
+  if (sf != nullptr) return serveSpoof(fd, sf, buf, count);
+
   ssize_t n = orig_read != nullptr ? orig_read(fd, buf, count) : -1;
   if (n > 0) {
     off_t pos = lseek(fd, 0, SEEK_CUR);
@@ -1051,29 +1186,185 @@ ssize_t fake_read(int fd, void *buf, size_t count) {
 }
 
 ssize_t fake_pread(int fd, void *buf, size_t count, off_t offset) {
+  SpoofFile *sf = spoofOf(fd);
+  if (sf != nullptr) {
+    if (offset < 0) return -1;
+    pthread_rwlock_rdlock(&g_lock);
+    const std::string &c = sf->content;
+    size_t o = (size_t)offset;
+    size_t n = 0;
+    if (o < c.size()) {
+      n = c.size() - o;
+      if (n > count) n = count;
+      memcpy(buf, c.data() + o, n);
+    }
+    pthread_rwlock_unlock(&g_lock);
+    return (ssize_t)n;
+  }
   ssize_t n = orig_pread != nullptr ? orig_pread(fd, buf, count, offset) : -1;
   if (n > 0) syncBuffer(fd, buf, (size_t)n, (int64_t)offset);
   return n;
 }
 
 ssize_t fake_pread64(int fd, void *buf, size_t count, off_t offset) {
+  SpoofFile *sf = spoofOf(fd);
+  if (sf != nullptr) {
+    if (offset < 0) return -1;
+    pthread_rwlock_rdlock(&g_lock);
+    const std::string &c = sf->content;
+    size_t o = (size_t)offset;
+    size_t n = 0;
+    if (o < c.size()) {
+      n = c.size() - o;
+      if (n > count) n = count;
+      memcpy(buf, c.data() + o, n);
+    }
+    pthread_rwlock_unlock(&g_lock);
+    return (ssize_t)n;
+  }
   ssize_t n = orig_pread64 != nullptr ? orig_pread64(fd, buf, count, offset) : -1;
   if (n > 0) syncBuffer(fd, buf, (size_t)n, (int64_t)offset);
   return n;
 }
 
+ssize_t fake_readv(int fd, const struct iovec *iov, int iovcnt) {
+  ssize_t n = orig_readv != nullptr ? orig_readv(fd, iov, iovcnt) : -1;
+  if (n <= 0 || iov == nullptr || iovcnt <= 0) return n;
+  off_t pos = lseek(fd, 0, SEEK_CUR);
+  if (pos < 0) return n;
+  int64_t start = (int64_t)(pos - n);
+  int64_t cur = start;
+  for (int i = 0; i < iovcnt && cur < start + (int64_t)n; ++i) {
+    size_t len = iov[i].iov_len;
+    if (len == 0 || iov[i].iov_base == nullptr) continue;
+    int64_t left = start + (int64_t)n - cur;
+    size_t take = (size_t)(left < (int64_t)len ? left : (int64_t)len);
+    syncBuffer(fd, iov[i].iov_base, take, cur);
+    cur += (int64_t)take;
+  }
+  return n;
+}
+
+ssize_t fake_read_chk(int fd, void *buf, size_t count, size_t buf_size) {
+  SpoofFile *sf = spoofOf(fd);
+  if (sf != nullptr) {
+    if (count > buf_size) return -1;
+    return serveSpoof(fd, sf, buf, count);
+  }
+  ssize_t n = orig_read_chk != nullptr ? orig_read_chk(fd, buf, count, buf_size) : -1;
+  if (n > 0) {
+    off_t pos = lseek(fd, 0, SEEK_CUR);
+    if (pos >= 0) syncBuffer(fd, buf, (size_t)n, (int64_t)(pos - n));
+  }
+  return n;
+}
+
+ssize_t fake_pread_chk(int fd, void *buf, size_t count, off_t offset, size_t buf_size) {
+  SpoofFile *sf = spoofOf(fd);
+  if (sf != nullptr) {
+    if (count > buf_size) return -1;
+    pthread_rwlock_rdlock(&g_lock);
+    const std::string &c = sf->content;
+    size_t o = offset < 0 ? 0 : (size_t)offset;
+    size_t n = 0;
+    if (o < c.size()) {
+      n = c.size() - o;
+      if (n > count) n = count;
+      memcpy(buf, c.data() + o, n);
+    }
+    pthread_rwlock_unlock(&g_lock);
+    return (ssize_t)n;
+  }
+  ssize_t n = orig_pread_chk != nullptr
+                  ? orig_pread_chk(fd, buf, count, offset, buf_size)
+                  : -1;
+  if (n > 0) syncBuffer(fd, buf, (size_t)n, (int64_t)offset);
+  return n;
+}
+
+ssize_t fake_pread64_chk(int fd, void *buf, size_t count, off_t offset, size_t buf_size) {
+  SpoofFile *sf = spoofOf(fd);
+  if (sf != nullptr) {
+    if (count > buf_size) return -1;
+    pthread_rwlock_rdlock(&g_lock);
+    const std::string &c = sf->content;
+    size_t o = offset < 0 ? 0 : (size_t)offset;
+    size_t n = 0;
+    if (o < c.size()) {
+      n = c.size() - o;
+      if (n > count) n = count;
+      memcpy(buf, c.data() + o, n);
+    }
+    pthread_rwlock_unlock(&g_lock);
+    return (ssize_t)n;
+  }
+  ssize_t n = orig_pread64_chk != nullptr
+                  ? orig_pread64_chk(fd, buf, count, offset, buf_size)
+                  : -1;
+  if (n > 0) syncBuffer(fd, buf, (size_t)n, (int64_t)offset);
+  return n;
+}
+
+long fake_syscall(long nr, ...) {
+  va_list ap;
+  va_start(ap, nr);
+  long a0 = va_arg(ap, long);
+  long a1 = va_arg(ap, long);
+  long a2 = va_arg(ap, long);
+  long a3 = va_arg(ap, long);
+  long a4 = va_arg(ap, long);
+  long a5 = va_arg(ap, long);
+  va_end(ap);
+
+  long r = orig_syscall != nullptr ? orig_syscall(nr, a0, a1, a2, a3, a4, a5) : -1;
+  if (!g_enabled || t_bypass || r < 0) return r;
+
+  if (nr == __NR_openat) {
+    const char *p = (const char *)a1;
+    std::string abs = resolvePath((int)a0, p);
+    SpoofFile *f = findSpoof(p);
+    trackFd((int)r, abs, f);
+    return r;
+  }
+#if defined(__NR_open)
+  if (nr == __NR_open) {
+    const char *p = (const char *)a0;
+    std::string abs = (p != nullptr) ? std::string(p) : std::string();
+    SpoofFile *f = findSpoof(p);
+    trackFd((int)r, abs, f);
+    return r;
+  }
+#endif
+  if (!g_anti_detect) return r;
+
+  if (nr == __NR_read) {
+    off_t pos = lseek((int)a0, 0, SEEK_CUR);
+    if (pos >= 0) syncBuffer((int)a0, (void *)a1, (size_t)r, (int64_t)(pos - r));
+  } else if (nr == __NR_pread64) {
+    syncBuffer((int)a0, (void *)a1, (size_t)r, (int64_t)a3);
+  }
+#if defined(__NR_pread)
+  else if (nr == __NR_pread) {
+    syncBuffer((int)a0, (void *)a1, (size_t)r, (int64_t)a3);
+  }
+#endif
+  return r;
+}
+
 void *fake_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off) {
   void *r = orig_mmap != nullptr ? orig_mmap(addr, len, prot, flags, fd, off) : MAP_FAILED;
   if (r != MAP_FAILED && fd >= 0 && (prot & PROT_READ) != 0) {
-    syncMapped(r, len, fd, (int64_t)off);
+    syncMapped(r, len, fd, (int64_t)off, (flags & MAP_SHARED) != 0);
   }
   return r;
 }
 
 int fake_close(int fd) {
-  if (g_enabled && g_anti_detect) {
+  if (g_enabled) {
     pthread_rwlock_wrlock(&g_lock);
     g_fdpath.erase(fd);
+    g_fdspoof.erase(fd);
+    g_fdspoof_pos.erase(fd);
     pthread_rwlock_unlock(&g_lock);
   }
   return orig_close != nullptr ? orig_close(fd) : -1;
@@ -1514,6 +1805,12 @@ bool hookSym(const char *name, void *fake, void **out) {
 
 int installHooks() {
   if (g_installed) return 0;
+
+  const uint32_t G = g_groups;
+  if (G == 0) {
+    LOGI("native hooks skipped: no native feature enabled");
+    return 0;
+  }
   g_installed = true;
 
   int n = 0, total = 0;
@@ -1523,58 +1820,81 @@ int installHooks() {
     if (hookSym(sym, (void *)(fake), (void **)&(orig))) ++n;                    \
   } while (0)
 
-  TRY("__system_property_get", fake_prop_get, orig_prop_get);
-  TRY("uname", fake_uname, orig_uname);
-  TRY("gettimeofday", fake_gettimeofday, orig_gettimeofday);
-  TRY("clock_gettime", fake_clock_gettime, orig_clock_gettime);
-  TRY("sysinfo", fake_sysinfo, orig_sysinfo);
-  TRY("time", fake_time, orig_time);
-  TRY("clock", fake_clock, orig_clock);
-  TRY("open", fake_open, orig_open);
-  TRY("open64", fake_open, orig_open64);
-  TRY("openat", fake_openat, orig_openat);
-  TRY("openat64", fake_openat, orig_openat64);
-  TRY("fopen", fake_fopen, orig_fopen);
-  TRY("read", fake_read, orig_read);
-  TRY("pread", fake_pread, orig_pread);
-  TRY("pread64", fake_pread64, orig_pread64);
-  TRY("mmap", fake_mmap, orig_mmap);
-  TRY("close", fake_close, orig_close);
-  TRY("access", fake_access, orig_access);
-  TRY("faccessat", fake_faccessat, orig_faccessat);
-  TRY("stat", fake_stat, orig_stat);
-  TRY("lstat", fake_lstat, orig_lstat);
-  TRY("fstatat", fake_fstatat, orig_fstatat);
-  TRY("readlink", fake_readlink, orig_readlink);
-  TRY("realpath", fake_realpath, orig_realpath);
-  TRY("opendir", fake_opendir, orig_opendir);
-  TRY("readdir", fake_readdir, orig_readdir);
-  TRY("readdir64", fake_readdir, orig_readdir64);
-  TRY("execve", fake_execve, orig_execve);
-  TRY("execv", fake_execv, orig_execv);
-  TRY("execvp", fake_execvp, orig_execvp);
-  TRY("system", fake_system, orig_system);
-  TRY("popen", fake_popen, orig_popen);
-  TRY("posix_spawn", fake_posix_spawn, orig_posix_spawn);
-  TRY("getifaddrs", fake_getifaddrs, orig_getifaddrs);
-  TRY("if_nametoindex", fake_if_nametoindex, orig_if_nametoindex);
-  TRY("exit", fake_exit, orig_exit);
-  TRY("_exit", fake__exit, orig__exit);
-  TRY("abort", fake_abort, orig_abort);
-  TRY("kill", fake_kill, orig_kill);
+  if (G & GRP_PROP) TRY("__system_property_get", fake_prop_get, orig_prop_get);
+  if (G & GRP_UNAME) TRY("uname", fake_uname, orig_uname);
+  if (G & GRP_TIME) {
+    TRY("gettimeofday", fake_gettimeofday, orig_gettimeofday);
+    TRY("clock_gettime", fake_clock_gettime, orig_clock_gettime);
+    TRY("sysinfo", fake_sysinfo, orig_sysinfo);
+    TRY("time", fake_time, orig_time);
+    TRY("clock", fake_clock, orig_clock);
+  }
+  if (G & GRP_FILE) {
+    TRY("open", fake_open, orig_open);
+    TRY("open64", fake_open, orig_open64);
+    TRY("openat", fake_openat, orig_openat);
+    TRY("openat64", fake_openat, orig_openat64);
+    TRY("fopen", fake_fopen, orig_fopen);
+    TRY("close", fake_close, orig_close);
+  }
+  if (G & GRP_STAT) {
+    TRY("access", fake_access, orig_access);
+    TRY("faccessat", fake_faccessat, orig_faccessat);
+    TRY("stat", fake_stat, orig_stat);
+    TRY("lstat", fake_lstat, orig_lstat);
+    TRY("fstatat", fake_fstatat, orig_fstatat);
+    TRY("readlink", fake_readlink, orig_readlink);
+    TRY("realpath", fake_realpath, orig_realpath);
+  }
+  if (G & GRP_DIR) {
+    TRY("opendir", fake_opendir, orig_opendir);
+    TRY("readdir", fake_readdir, orig_readdir);
+    TRY("readdir64", fake_readdir, orig_readdir64);
+  }
+  if (G & GRP_EXEC) {
+    TRY("execve", fake_execve, orig_execve);
+    TRY("execv", fake_execv, orig_execv);
+    TRY("execvp", fake_execvp, orig_execvp);
+    TRY("system", fake_system, orig_system);
+    TRY("popen", fake_popen, orig_popen);
+    TRY("posix_spawn", fake_posix_spawn, orig_posix_spawn);
+  }
+  if (G & GRP_NET) {
+    TRY("getifaddrs", fake_getifaddrs, orig_getifaddrs);
+    TRY("if_nametoindex", fake_if_nametoindex, orig_if_nametoindex);
+  }
+  if (G & GRP_EXIT) {
+    TRY("exit", fake_exit, orig_exit);
+    TRY("_exit", fake__exit, orig__exit);
+    TRY("abort", fake_abort, orig_abort);
+    TRY("kill", fake_kill, orig_kill);
+  }
+  if (G & GRP_READ) {
+    TRY("read", fake_read, orig_read);
+    TRY("pread", fake_pread, orig_pread);
+    TRY("pread64", fake_pread64, orig_pread64);
+    TRY("readv", fake_readv, orig_readv);
+    TRY("syscall", fake_syscall, orig_syscall);
+    TRY("__read_chk", fake_read_chk, orig_read_chk);
+    TRY("__pread_chk", fake_pread_chk, orig_pread_chk);
+    TRY("__pread64_chk", fake_pread64_chk, orig_pread64_chk);
+  }
+  if (G & GRP_MMAP) TRY("mmap", fake_mmap, orig_mmap);
 #undef TRY
 
   if (orig_open64 == nullptr) orig_open64 = orig_open;
   if (orig_openat64 == nullptr) orig_openat64 = orig_openat;
   if (orig_readdir64 == nullptr) orig_readdir64 = orig_readdir;
+  if (orig_pread64 == nullptr) orig_pread64 = orig_pread;
+  if (orig_pread64_chk == nullptr) orig_pread64_chk = orig_pread_chk;
 
   bool gpu = false;
-  if (g_enabled) gpu = hookGpu();
+  if (g_enabled && (G & GRP_GPU)) gpu = hookGpu();
 
   if (g_enabled && g_anti_detect) collectPatches();
 
-  LOGI("native hooks installed: %d/%d, gpu=%d, anti=%d", n, total, gpu ? 1 : 0,
-       g_anti_detect ? 1 : 0);
+  LOGI("native hooks installed: %d/%d, groups=0x%x, gpu=%d, anti=%d", n, total,
+       G, gpu ? 1 : 0, g_anti_detect ? 1 : 0);
   if (n == 0) {
     LOGW("no native hook installed — 所有伪装将只走 Java 层");
   }
@@ -1617,6 +1937,7 @@ void applyPayload(const char *payload) {
   g_anti_detect = false;
   g_vpn.clear();
   g_vpn_enable = false;
+  g_groups = 0;
 
   std::vector<std::string> lines = split(payload != nullptr ? payload : "", '\n');
   for (size_t i = 0; i < lines.size(); ++i) {
@@ -1624,7 +1945,9 @@ void applyPayload(const char *payload) {
     if (line.size() < 2) continue;
     std::string body = line.substr(2);
 
-    if (line.compare(0, 2, "K\t") == 0) {
+    if (line.compare(0, 2, "M\t") == 0) {
+      g_groups = (uint32_t)strtoul(body.c_str(), nullptr, 10);
+    } else if (line.compare(0, 2, "K\t") == 0) {
       g_kernel = body;
     } else if (line.compare(0, 2, "A\t") == 0) {
       g_arch = body;
@@ -1696,9 +2019,10 @@ void applyPayload(const char *payload) {
   g_uptime_base_ms = realUptimeMs();
   g_enabled = true;
   if (!g_gpu.empty()) refreshGpuBuf();
+  g_need_fdtrack = g_anti_detect || !g_files.empty();
 
-  LOGI("config applied: props=%zu hide=%zu exist=%zu files=%zu gpu=%d vpn=%zu",
-       g_props.size(), g_hide.size(), g_exist.size(), g_files.size(),
+  LOGI("config applied: groups=0x%x props=%zu hide=%zu exist=%zu files=%zu gpu=%d vpn=%zu",
+       g_groups, g_props.size(), g_hide.size(), g_exist.size(), g_files.size(),
        g_gpu.empty() ? 0 : 1, g_vpn.size());
 
   pthread_rwlock_unlock(&g_lock);
@@ -1717,8 +2041,14 @@ void clearAll() {
   g_vpn.clear();
   g_vpn_enable = false;
   g_anti_detect = false;
-  g_patches.clear();
+  g_groups = 0;
+  g_need_fdtrack = false;
+  g_path_patches.clear();
+  for (size_t i = 0; i < g_patch_pool.size(); ++i) g_patch_pool[i]->clear();
+  g_basename_index.clear();
   g_fdpath.clear();
+  g_fdspoof.clear();
+  g_fdspoof_pos.clear();
   g_time_offset_ms = 0;
   g_time_enable = false;
   g_uptime_enable = false;
@@ -1797,6 +2127,9 @@ Java_io_github_sunilxsk_lockperm_NativeBridge_nativeHookCount(JNIEnv *, jclass) 
   if (orig_kill) n++;
   if (orig_read) n++;
   if (orig_pread || orig_pread64) n++;
+  if (orig_read_chk) n++;
+  if (orig_pread_chk || orig_pread64_chk) n++;
+  if (orig_syscall) n++;
   if (orig_mmap) n++;
   if (orig_close) n++;
   if (orig_getifaddrs) n++;
@@ -1820,8 +2153,8 @@ typedef struct {
 
 static void onModuleLoaded(const char *name, void *handle) {
   (void)handle;
-  if (g_enabled && !orig_gl_get_string && name != nullptr &&
-      strstr(name, "GLES") != nullptr) {
+  if (g_enabled && (g_groups & GRP_GPU) && !orig_gl_get_string &&
+      name != nullptr && strstr(name, "GLES") != nullptr) {
     hookGpu();
   }
 }

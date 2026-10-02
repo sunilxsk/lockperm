@@ -29,10 +29,23 @@ object NativeBridge {
     }
 
     
+
+
+
+
+
+
+    @Volatile
+    var pushed: Boolean = false
+        private set
+
+    
     fun apply(payload: String): Boolean {
         if (!loaded) return false
         return runCatching {
             applyConfig(payload)
+        }.onSuccess {
+            pushed = true
         }.onFailure {
             Log.w(TAG, "applyConfig failed: ${it.message}")
         }.getOrDefault(false)
@@ -43,6 +56,11 @@ object NativeBridge {
         if (!loaded) return
         runCatching { setEnabled(false) }
             .onFailure { Log.w(TAG, "setEnabled failed: ${it.message}") }
+    }
+
+    
+    fun disableIfPushed() {
+        if (pushed) disable()
     }
 
     

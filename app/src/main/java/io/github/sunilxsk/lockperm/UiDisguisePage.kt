@@ -117,10 +117,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
                     modifier = Modifier.weight(1f),
                 ) { Text("全部清空") }
             }
-            HintText(
-                "一键随机 = 生成一套自洽的假设备：品牌型号对得上、指纹由各字段拼出来，" +
-                        "Android ID / GSF / 广告 ID / App Set ID / DRM ID 也一起换掉。"
-            )
 
             val filled = XpConfig.BUILD_FIELDS.count { cfg.str(it.key, "").isNotBlank() }
             HintText(
@@ -397,7 +393,7 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
                 fontWeight = FontWeight.SemiBold,
             )
             LabeledTextField(
-                label = "设备名（Settings.Global device_name / marketname）",
+                label = "设备名",
                 value = cfg.str(XpConfig.KEY_DEVICE_NAME, ""),
                 onValueChange = { cfg.put(XpConfig.KEY_DEVICE_NAME, it) },
                 enabled = buildOn,
@@ -407,10 +403,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
                 checked = cfg.bool(XpConfig.KEY_HIDE_ACCOUNTS, false),
                 enabled = buildOn,
                 onCheckedChange = { cfg.put(XpConfig.KEY_HIDE_ACCOUNTS, it) },
-            )
-            HintText(
-                "DRM ID 必须是 64 位十六进制才会生效；GSF ID 建议 16 位十六进制。" +
-                        "留空的项都保持真机原值。"
             )
         }
 
@@ -479,10 +471,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 4,
                 enabled = enabled,
-            )
-            HintText(
-                "格式示例：Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
             )
         }
 
@@ -564,14 +552,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
                 onClick = { cfg.put(XpConfig.KEY_VPN_IFACES, XpConfig.DEF_VPN_IFACES) },
                 enabled = on,
             ) { Text("恢复默认接口名") }
-            HintText(
-                "默认已经覆盖 tun / ppp / utun / wg / tap / ipsec 这几类常见 VPN 网卡。" +
-                        "若 VPN 使用其它接口名，添加进去即可（写 tun 可匹配 tun0、tun1 …）。"
-            )
-            HintText(
-                "开启后应用无论用哪种方式查网卡、代理，都看不到 VPN 的痕迹。" +
-                        "完整的原生层拦截需要在关于页开启「原生层 Hook」。"
-            )
         }
 
         SectionTitle("稳定性")
@@ -727,10 +707,6 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
                 enabled = enabled,
                 onCheckedChange = { cfg.put(XpConfig.KEY_NATIVE_BLOCK_EXIT, it) },
             )
-            HintText(
-                "开启后应用将无法自行退出，可能会卡在前台退不掉，按需打开。" +
-                        "需要关于页的「原生层 Hook」开启才生效。"
-            )
         }
 
         
@@ -769,6 +745,12 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
 
         PermissionFakeCard(cfg, enabled)
 
+        SectionTitle("原生层")
+
+        
+        
+        NativeAppModeCard(cfg, enabled)
+
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -782,16 +764,25 @@ fun DisguiseConfigContent(cfg: XpConfigState, enabled: Boolean) {
 
 
 
+
+
+
+
+
+
+
+
+
 @Composable
-private fun NativeStatusBar(cfg: XpConfigState) {
-    val on = cfg.bool(XpConfig.KEY_NATIVE_HOOK, XpConfig.DEF_NATIVE_HOOK)
+fun NativeStatusBar(cfg: XpConfigState) {
+    val (active, hint) = XpConfig.nativeResolution(cfg)
     val soOk = remember { NativeBridge.loaded }
     val cs = MaterialTheme.colorScheme
 
-    val (text, color) = when {
-        !on -> "原生层 Hook：已关闭（只有常规方式生效）" to cs.onSurfaceVariant
-        !soOk -> "原生层 Hook：加载失败，请检查 APK 是否完整" to cs.error
-        else -> "原生层 Hook：已开启" to cs.primary
+    val color = when {
+        !active -> cs.onSurfaceVariant
+        !soOk -> cs.error
+        else -> cs.primary
     }
 
     Row(
@@ -810,11 +801,65 @@ private fun NativeStatusBar(cfg: XpConfigState) {
         )
         Spacer(Modifier.width(9.dp))
         Text(
-            text,
+            hint,
             style = MaterialTheme.typography.bodySmall,
             color = color,
+            fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
         )
+    }
+    if (!soOk && active) {
+        Text(
+            "so 加载失败，请检查 APK 是否完整",
+            style = MaterialTheme.typography.bodySmall,
+            color = cs.error,
+        )
+    }
+}
+
+
+
+
+
+
+
+@Composable
+fun NativeAppModeCard(cfg: XpConfigState, enabled: Boolean) {
+    val globalOn = cfg.bool(XpConfig.KEY_NATIVE_HOOK, XpConfig.DEF_NATIVE_HOOK)
+    val mode = cfg.int(XpConfig.KEY_NATIVE_APP_MODE, XpConfig.NATIVE_APP_DEFAULT)
+    val cs = MaterialTheme.colorScheme
+
+    FeatureCard(
+        title = "本应用的原生层钩子",
+        checked = mode != XpConfig.NATIVE_APP_OFF,
+        enabled = enabled,
+        onCheckedChange = {
+            cfg.put(
+                XpConfig.KEY_NATIVE_APP_MODE,
+                if (it) XpConfig.NATIVE_APP_ON else XpConfig.NATIVE_APP_OFF
+            )
+        },
+    ) {
+        Text(
+            "针对当前这一个应用单独设置，不影响其它应用。",
+            style = MaterialTheme.typography.bodySmall,
+            color = cs.onSurfaceVariant,
+        )
+        SingleSelectChips(
+            options = listOf("跟随全局", "强制开启", "强制关闭"),
+            selectedIndex = mode,
+            enabled = enabled,
+            onSelect = { cfg.put(XpConfig.KEY_NATIVE_APP_MODE, it) },
+        )
+        Text(
+            buildString {
+                append("当前为")
+                append(if (globalOn) "开启" else "关闭")
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = cs.onSurfaceVariant,
+        )
+        HorizontalDividerCompat()
     }
 }
 
@@ -956,8 +1001,7 @@ private fun HidePathCard(cfg: XpConfigState, enabled: Boolean) {
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                "让目标应用用任何方式都探测不到这些路径：Java 的 File / 流 / NIO，以及 shell 命令——" +
-                        "命令里出现该路径即报 No such file or directory，退出码 1。",
+                "部分生效",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -978,8 +1022,7 @@ private fun HidePathCard(cfg: XpConfigState, enabled: Boolean) {
                 ) { Text("全部清空", style = MaterialTheme.typography.labelMedium) }
             }
             HintText(
-                "当前已隐藏 $count 条。" +
-                        "原生层拦截需要在关于页开启「原生层 Hook」。"
+                "当前已隐藏 $count 条。"
             )
         }
     }

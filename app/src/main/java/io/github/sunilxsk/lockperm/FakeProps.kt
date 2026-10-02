@@ -89,22 +89,32 @@ internal object FakeProps {
         }
 
         
-        XpConfig.BUILD_FIELDS.forEach { f ->
-            put(f.prop, cfg.buildValues[f.field])
+        
+        
+        
+        val masterOn = cfg.enableBuild
+
+        
+        if (masterOn) {
+            XpConfig.BUILD_FIELDS.forEach { f ->
+                put(f.prop, cfg.buildValues[f.field])
+            }
         }
 
         val bv = cfg.buildValues
-        val brand = bv["BRAND"] ?: ""
-        val product = bv["PRODUCT"] ?: ""
-        val device = bv["DEVICE"] ?: ""
-        val release = bv["RELEASE"] ?: ""
-        val id = bv["ID"] ?: ""
-        val inc = bv["INCREMENTAL"] ?: ""
-        val tags = bv["TAGS"] ?: "release-keys"
-        val type = bv["TYPE"] ?: "user"
 
         
-        if (bv["FINGERPRINT"] == null && brand.isNotEmpty() &&
+        val brand = if (masterOn) bv["BRAND"] ?: "" else ""
+        val product = if (masterOn) bv["PRODUCT"] ?: "" else ""
+        val device = if (masterOn) bv["DEVICE"] ?: "" else ""
+        val release = if (masterOn) bv["RELEASE"] ?: "" else ""
+        val id = if (masterOn) bv["ID"] ?: "" else ""
+        val inc = if (masterOn) bv["INCREMENTAL"] ?: "" else ""
+        val tags = if (masterOn) bv["TAGS"] ?: "release-keys" else ""
+        val type = if (masterOn) bv["TYPE"] ?: "user" else ""
+
+        
+        if (masterOn && bv["FINGERPRINT"] == null && brand.isNotEmpty() &&
             product.isNotEmpty() && device.isNotEmpty() && release.isNotEmpty()
         ) {
             put("ro.build.fingerprint", "$brand/$product/$device:$release/$id/$inc:$type/$tags")
@@ -112,7 +122,7 @@ internal object FakeProps {
 
         
         var rel = release
-        var sdk = cfg.exSdkInt
+        var sdk = if (masterOn) cfg.exSdkInt else 0
         if (sdk > 0 && rel.isEmpty()) rel = XpConfig.releaseFor(sdk)
         if (rel.isNotEmpty() && sdk <= 0) sdk = XpConfig.sdkFor(rel)
         if (rel.isNotEmpty()) {
@@ -128,44 +138,50 @@ internal object FakeProps {
         
         
         
-        val cpuPreset = if (cfg.exCpuEnable && cfg.exCpuMode == XpConfig.CPU_MODE_PRESET) {
-            XpConfig.CPU_PRESETS.getOrNull(cfg.exCpuPreset)
-        } else {
-            null
-        }
-        val soc = cpuPreset?.soc
-            ?: cfg.exCpuInfoHw.ifEmpty { bv["SOC_MODEL"].orEmpty() }
-        val platform = cpuPreset?.board
-            ?: cfg.exPlatform.ifEmpty { bv["HARDWARE"].orEmpty().ifEmpty { soc } }
-        val hw = cpuPreset?.soc
-            ?: bv["HARDWARE"].orEmpty().ifEmpty { platform.ifEmpty { soc } }
-        put("ro.soc.model", soc)
-        put("ro.soc.manufacturer", XpConfig.socVendor(soc))
-        put("ro.hardware", hw)
-        put("ro.board.platform", platform)
-        put("ro.hardware.chipset", soc)
+        if (masterOn) {
+            val cpuPreset = if (cfg.exCpuEnable && cfg.exCpuMode == XpConfig.CPU_MODE_PRESET) {
+                XpConfig.CPU_PRESETS.getOrNull(cfg.exCpuPreset)
+            } else {
+                null
+            }
+            val soc = cpuPreset?.soc
+                ?: cfg.exCpuInfoHw.ifEmpty { bv["SOC_MODEL"].orEmpty() }
+            val platform = cpuPreset?.board
+                ?: cfg.exPlatform.ifEmpty { bv["HARDWARE"].orEmpty().ifEmpty { soc } }
+            val hw = cpuPreset?.soc
+                ?: bv["HARDWARE"].orEmpty().ifEmpty { platform.ifEmpty { soc } }
+            put("ro.soc.model", soc)
+            put("ro.soc.manufacturer", XpConfig.socVendor(soc))
+            put("ro.hardware", hw)
+            put("ro.board.platform", platform)
+            put("ro.hardware.chipset", soc)
 
-        
-        
-        val kernel = kernelVersion(cfg)
-        put("ro.kernel.version", kernel)
-        put("ro.build.kernel.id", kernel)
-        
-        if (platform.isNotEmpty()) {
-            put("ro.hardware.platform", platform)
-            put("ro.board.chipset", platform)
-        }
-
-        
-        abiFor(cfg.exArch)?.let { a ->
-            put("ro.product.cpu.abi", a.first)
-            put("ro.product.cpu.abilist", a.second)
-            if (a.third.isNotEmpty()) put("ro.product.cpu.abilist32", a.third)
-            if (a.fourth.isNotEmpty()) put("ro.product.cpu.abilist64", a.fourth)
+            
+            
+            val kernel = kernelVersion(cfg)
+            put("ro.kernel.version", kernel)
+            put("ro.build.kernel.id", kernel)
+            
+            if (platform.isNotEmpty()) {
+                put("ro.hardware.platform", platform)
+                put("ro.board.chipset", platform)
+            }
         }
 
         
-        if (cfg.exDevOff) {
+        
+        val arch = arch(cfg)
+        if (arch.isNotEmpty()) {
+            abiFor(arch)?.let { a ->
+                put("ro.product.cpu.abi", a.first)
+                put("ro.product.cpu.abilist", a.second)
+                if (a.third.isNotEmpty()) put("ro.product.cpu.abilist32", a.third)
+                if (a.fourth.isNotEmpty()) put("ro.product.cpu.abilist64", a.fourth)
+            }
+        }
+
+        
+        if (masterOn && cfg.exDevOff) {
             put("ro.debuggable", "0")
             put("ro.secure", "1")
             put("ro.build.type", "user")
@@ -175,7 +191,7 @@ internal object FakeProps {
 
         
         val serial = bv["SERIAL"]
-        if (!serial.isNullOrEmpty()) {
+        if (masterOn && !serial.isNullOrEmpty()) {
             put("ro.boot.serialno", serial)
             put("ro.serialno", serial)
             put("ro.kernel.android.serialno", serial)
@@ -184,18 +200,20 @@ internal object FakeProps {
         
         
         
-        put("ro.product.device", device)
-        put("ro.product.name", product)
-        put("ro.product.model", bv["MODEL"])
-        put("ro.product.brand", brand)
-        put("ro.product.manufacturer", bv["MANUFACTURER"])
-        put("ro.product.board", bv["BOARD"])
-        if (product.isNotEmpty()) put("ro.build.product", product)
-        
-        val gpu = cfg.exGpu
-        if (gpu.isNotEmpty()) {
-            put("ro.hardware.egl", gpu.lowercase().replace(" ", "_"))
-            put("ro.opengles.version", "196610")
+        if (masterOn) {
+            put("ro.product.device", device)
+            put("ro.product.name", product)
+            put("ro.product.model", bv["MODEL"])
+            put("ro.product.brand", brand)
+            put("ro.product.manufacturer", bv["MANUFACTURER"])
+            put("ro.product.board", bv["BOARD"])
+            if (product.isNotEmpty()) put("ro.build.product", product)
+            
+            val gpu = cfg.exGpu
+            if (gpu.isNotEmpty()) {
+                put("ro.hardware.egl", gpu.lowercase().replace(" ", "_"))
+                put("ro.opengles.version", "196610")
+            }
         }
 
         
@@ -231,18 +249,24 @@ internal object FakeProps {
 
     
 
-    fun kernelVersion(cfg: XpState.Snapshot): String =
-        cfg.exKernel.ifEmpty { XpConfig.DEF_KERNEL }
+    
 
-    fun arch(cfg: XpState.Snapshot): String =
-        cfg.exArch.ifEmpty { XpConfig.DEF_ARCH }
 
-    fun cpuHardware(cfg: XpState.Snapshot): String =
-        cfg.exCpuInfoHw.ifEmpty {
+
+
+    fun kernelVersion(cfg: XpState.Snapshot): String = cfg.exKernel.trim()
+
+    
+    fun arch(cfg: XpState.Snapshot): String = cfg.exArch.trim()
+
+    fun cpuHardware(cfg: XpState.Snapshot): String {
+        if (!cfg.enableBuild) return ""
+        return cfg.exCpuInfoHw.ifEmpty {
             cfg.buildValues["SOC_MODEL"].orEmpty().ifEmpty {
                 cfg.buildValues["HARDWARE"].orEmpty()
             }
         }
+    }
 
     fun procVersion(cfg: XpState.Snapshot): String =
         "Linux version ${kernelVersion(cfg)} (build-user@build-host) " +
@@ -251,16 +275,25 @@ internal object FakeProps {
 
     private const val UNAME_VERSION = "#1 SMP PREEMPT Mon Jan 1 00:00:00 UTC 2024"
 
-    fun uname(cfg: XpState.Snapshot, flags: Set<Char>): String {
+    
+    fun uname(cfg: XpState.Snapshot, flags: Set<Char>): String? {
+        val kernel = kernelVersion(cfg)
+        val arch = arch(cfg)
+        
+        if (kernel.isEmpty() && arch.isEmpty()) return null
         if (flags.isEmpty()) return "Linux"
         val parts = LinkedHashMap<Char, String>()
         parts['s'] = "Linux"
         parts['n'] = "localhost"
-        parts['r'] = kernelVersion(cfg)
-        parts['v'] = UNAME_VERSION
-        parts['m'] = arch(cfg)
-        parts['p'] = arch(cfg)
-        parts['i'] = arch(cfg)
+        if (kernel.isNotEmpty()) {
+            parts['r'] = kernel
+            parts['v'] = UNAME_VERSION
+        }
+        if (arch.isNotEmpty()) {
+            parts['m'] = arch
+            parts['p'] = arch
+            parts['i'] = arch
+        }
         parts['o'] = "GNU/Linux"
         
         val want = if ('a' in flags) setOf('s', 'n', 'r', 'v', 'm', 'o') else flags
@@ -289,6 +322,8 @@ internal object FakeProps {
 
 
     fun cpuInfo(cfg: XpState.Snapshot): String {
+        
+        if (!cfg.enableBuild) return ""
         if (!cfg.exCpuEnable && cfg.exCpuInfoHw.isEmpty()) return ""
 
         if (cfg.exCpuEnable && cfg.exCpuMode == XpConfig.CPU_MODE_CUSTOM) {
@@ -306,6 +341,97 @@ internal object FakeProps {
         return raw.split("\n").joinToString("\n") { line: String ->
             if (line.startsWith("Hardware")) "Hardware\t: $hw" else line
         }
+    }
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    private val CPU_FREQ: Map<String, IntArray> = mapOf(
+        "SM8450" to intArrayOf(691_200, 1_766_400, 806_400, 2_995_200),
+        "MT6983" to intArrayOf(500_000, 2_000_000, 650_000, 2_500_000),
+        "S5E9925" to intArrayOf(500_000, 1_900_000, 700_000, 2_800_000),
+        "Kirin 9000" to intArrayOf(500_000, 2_050_000, 700_000, 3_130_000),
+        "SM8250" to intArrayOf(691_200, 1_766_400, 806_400, 2_841_600),
+    )
+    private val CPU_FREQ_DEF = intArrayOf(500_000, 2_000_000, 650_000, 2_500_000)
+
+    
+
+
+
+    fun cpuFiles(cfg: XpState.Snapshot): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        val info = cpuInfo(cfg)
+        if (info.isEmpty()) return out
+        out["/proc/cpuinfo"] = info
+
+        val cores = Regex("^processor\\s*:", RegexOption.MULTILINE)
+            .findAll(info).count().takeIf { it > 0 }
+            ?: cfg.exCpuCores.coerceIn(1, 32)
+        val n = cores.coerceIn(1, 32)
+        val topo = "0-${n - 1}"
+
+        
+        out["/sys/devices/system/cpu/present"] = topo
+        out["/sys/devices/system/cpu/possible"] = topo
+        out["/sys/devices/system/cpu/online"] = topo
+        out["/sys/devices/system/cpu/kernel_max"] = (n - 1).toString()
+        out["/sys/devices/system/cpu/offline"] = ""
+        out["/sys/devices/system/cpu/cpu0/cpufreq/affected_cpus"] = topo
+        out["/sys/devices/system/cpu/cpu0/cpufreq/related_cpus"] = topo
+        out["/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_transition_latency"] = "1000"
+        out["/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"] = "schedutil"
+
+        val hw = cpuHardware(cfg)
+        val freq = CPU_FREQ[hw] ?: CPU_FREQ_DEF
+        for (i in 0 until n) {
+            val big = i >= n - 2
+            val lo = if (big) freq[2] else freq[0]
+            val hi = if (big) freq[3] else freq[1]
+            val base = "/sys/devices/system/cpu/cpu$i/cpufreq"
+            out["$base/cpuinfo_min_freq"] = lo.toString()
+            out["$base/cpuinfo_max_freq"] = hi.toString()
+            out["$base/scaling_min_freq"] = lo.toString()
+            out["$base/scaling_max_freq"] = hi.toString()
+            out["$base/scaling_cur_freq"] = hi.toString()
+        }
+
+        
+        val little = "0-${(n - 3).coerceAtLeast(0)}"
+        val bigTopo = "${(n - 2).coerceAtMost(n - 1)}-${n - 1}"
+        out["/sys/devices/system/cpu/cpufreq/policy0/related_cpus"] = little
+        out["/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_min_freq"] = freq[0].toString()
+        out["/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq"] = freq[1].toString()
+        out["/sys/devices/system/cpu/cpufreq/policy7/related_cpus"] = bigTopo
+        out["/sys/devices/system/cpu/cpufreq/policy7/cpuinfo_min_freq"] = freq[2].toString()
+        out["/sys/devices/system/cpu/cpufreq/policy7/cpuinfo_max_freq"] = freq[3].toString()
+
+        
+        val platform = cfg.exPlatform.ifEmpty { hw }
+        if (hw.isNotEmpty()) {
+            out["/sys/devices/soc0/machine"] = hw
+            out["/sys/devices/soc0/hardware"] = hw
+            out["/sys/devices/soc0/family"] = platform
+            out["/sys/devices/soc0/vendor"] = XpConfig.socVendor(hw)
+            out["/sys/devices/soc0/soc_id"] = "0"
+            out["/sys/devices/soc0/platform_version"] = "0"
+            out["/sys/devices/soc0/serial_number"] = "0"
+            out["/sys/devices/soc0/build_id"] = "0"
+            out["/sys/devices/soc0/accessory_chip"] = "0"
+            out["/sys/devices/soc0/image_variant"] = "0"
+            out["/sys/devices/system/soc/soc0/machine"] = hw
+            out["/sys/devices/system/soc/soc0/family"] = platform
+            out["/sys/devices/system/soc/soc0/hardware"] = hw
+        }
+        return out
     }
 
     private fun syntheticCpuInfo(hw: String, cores: Int): String {

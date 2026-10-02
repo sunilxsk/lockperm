@@ -77,6 +77,13 @@ class XposedModuleEntry : XposedModule() {
         val cfg = XpState.refresh(prefs, force = true)
 
         
+        
+        
+        
+        
+        runCatching { BuildFields.apply(cfg) }
+            .onFailure { logAt(Log.WARN, TAG, "build fields early failed: ${it.message}") }
+
         HookRuntime.bind(this, prefs, cl)
 
         
@@ -260,22 +267,35 @@ class XposedModuleEntry : XposedModule() {
         
         
         
-        if (cfg.nativeHook) {
+        
+        
+        
+        
+        
+        if (cfg.nativeActive) {
             val cache = hostCacheDir(pkg)
             val payload = runCatching { NativePayload.build(cfg, cache) }
                 .onFailure { logAt(Log.WARN, TAG, "native payload failed: ${it.message}") }
                 .getOrNull()
             if (payload != null) {
                 val ok = NativeBridge.apply(payload)
-                logAt(Log.INFO, TAG, "native bridge for $pkg: ok=$ok ready=${NativeBridge.ready()}")
+                logAt(
+                    Log.INFO, TAG,
+                    "native bridge for $pkg: ok=$ok groups=${cfg.nativeGroups} " +
+                        "ready=${NativeBridge.ready()}"
+                )
             }
         } else {
             
             
             
-            runCatching { NativeBridge.disable() }
+            runCatching { NativeBridge.disableIfPushed() }
                 .onFailure { logAt(Log.WARN, TAG, "native disable failed: ${it.message}") }
-            logAt(Log.INFO, TAG, "native hook disabled by setting for $pkg")
+            logAt(
+                Log.INFO, TAG,
+                "native hook not injected for $pkg: switch=${cfg.nativeHook} " +
+                    "(mode=${cfg.nativeAppMode}) groups=${cfg.nativeGroups}"
+            )
         }
 
         

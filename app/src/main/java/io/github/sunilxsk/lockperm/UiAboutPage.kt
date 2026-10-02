@@ -587,7 +587,7 @@ private fun NativeHookCard(cfg: XpConfigState) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                "Native 层 Hook",
+                "Native 层 Hook（全局默认）",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )

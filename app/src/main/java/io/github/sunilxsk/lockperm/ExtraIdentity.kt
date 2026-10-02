@@ -24,27 +24,36 @@ internal class ExtraIdentity(
     private var uptimeBaseReal = 0L
     private var uptimeTarget = 0L
 
+    
+
+
+
+
+
+
+
     fun install() {
         val cfg = snapshot()
+        val on = cfg.enableBuild
 
         
-        if (!cfg.wifiFakeEnable) hookWifiSsid(cfg.exWifiSsid, cfg.exWifiBssid)
+        if (on && !cfg.wifiFakeEnable) hookWifiSsid(cfg.exWifiSsid, cfg.exWifiBssid)
 
-        if (cfg.exDevOff) hookDevOptionsOff()
-        hookTelephony()
-        hookTimezone(cfg.exTimezone)
-        hookLocaleAll(cfg.exLocale)
-        if (cfg.exTimeEnable && cfg.exTimeOffset != 0) hookSystemTime(cfg.exTimeOffset)
-        if (cfg.exUptimeEnable) hookUptime(cfg.exUptimeHours)
+        if (on && cfg.exDevOff) hookDevOptionsOff()
+        if (on) hookTelephony()
+        if (on) hookTimezone(cfg.exTimezone)
+        if (on) hookLocaleAll(cfg.exLocale)
+        if (on && cfg.exTimeEnable && cfg.exTimeOffset != 0) hookSystemTime(cfg.exTimeOffset)
+        if (on && cfg.exUptimeEnable) hookUptime(cfg.exUptimeHours)
         hookAndroidVersion(cfg)
-        hookMac(cfg.exWifiMac, cfg.exBtMac)
+        if (on) hookMac(cfg.exWifiMac, cfg.exBtMac)
         hookKernelArch(cfg)
-        hookHwSerial(cfg.exHwSerial, cfg.buildValues["SERIAL"])
-        hookFirebase(cfg.exFbFid, cfg.exFbIid)
-        hookGsf(cfg.gsfId)
-        if (cfg.exOaid.isNotEmpty()) hookOaid(cfg.exOaid)
+        if (on) hookHwSerial(cfg.exHwSerial, cfg.buildValues["SERIAL"])
+        if (on) hookFirebase(cfg.exFbFid, cfg.exFbIid)
+        if (on) hookGsf(cfg.gsfId)
+        if (on && cfg.exOaid.isNotEmpty()) hookOaid(cfg.exOaid)
 
-        logInfo("extra identity installed")
+        logInfo("extra identity installed (master=$on)")
     }
 
     
@@ -610,6 +619,7 @@ internal class ExtraIdentity(
 
 
     private fun hookAndroidVersion(cfg: XpState.Snapshot) {
+        if (!cfg.enableBuild) return
         var release = cfg.buildValues["RELEASE"].orEmpty()
         var sdk = cfg.exSdkInt
         if (sdk > 0 && release.isEmpty()) release = XpConfig.releaseFor(sdk)
@@ -654,26 +664,49 @@ internal class ExtraIdentity(
     
 
     private fun hookKernelArch(cfg: XpState.Snapshot) {
+        if (!cfg.enableBuild) return
+
         val kernel = FakeProps.kernelVersion(cfg)
         val arch = FakeProps.arch(cfg)
-        FakeFiles.version = FakeProps.procVersion(cfg)
         val cpuContent = FakeProps.cpuInfo(cfg)
-        if (cpuContent.isNotEmpty()) FakeFiles.cpuinfo = cpuContent
-        if (cfg.exCpuEnable) hookCpuInfoReaders(cpuContent)
+
+        val cpuWanted = cfg.exCpuEnable || cfg.exCpuInfoHw.isNotEmpty() ||
+            cfg.buildValues.containsKey("SOC_MODEL") ||
+            cfg.buildValues.containsKey("HARDWARE")
+
+        
+        if (kernel.isEmpty() && arch.isEmpty() && !cpuWanted) return
+
+        if (kernel.isNotEmpty()) FakeFiles.version = FakeProps.procVersion(cfg)
 
         
         
         
-        runCatching { System.setProperty("os.version", kernel) }
+        val cpuFiles = runCatching { FakeProps.cpuFiles(cfg) }.getOrDefault(emptyMap())
+        cpuFiles.forEach { (p, c) -> FakeFiles.setExtra(p, c) }
+        if (cpuContent.isNotEmpty()) {
+            FakeFiles.cpuinfo = cpuContent
+            hookCpuInfoReaders(cpuContent)
+        }
+
+        
+        
+        
+        if (kernel.isNotEmpty()) runCatching { System.setProperty("os.version", kernel) }
         if (arch.isNotEmpty()) runCatching { System.setProperty("os.arch", arch) }
 
         val sys = loadClassAnywhere("java.lang.System") ?: return
+        
+        if (kernel.isEmpty() && arch.isEmpty()) {
+            logInfo("kernel/arch empty -> skipped")
+            return
+        }
         runCatching {
             sys.getDeclaredMethod("getProperty", String::class.java).let { m ->
                 hookMethod(m) { chain ->
                     when (chain.getArg(0) as? String) {
-                        "os.version" -> kernel
-                        "os.arch" -> arch
+                        "os.version" -> kernel.ifEmpty { chain.proceed() as? String }
+                        "os.arch" -> arch.ifEmpty { chain.proceed() as? String }
                         "os.name" -> "Linux"
                         else -> chain.proceed()
                     }
@@ -684,8 +717,8 @@ internal class ExtraIdentity(
             sys.getDeclaredMethod("getProperty", String::class.java, String::class.java).let { m ->
                 hookMethod(m) { chain ->
                     when (chain.getArg(0) as? String) {
-                        "os.version" -> kernel
-                        "os.arch" -> arch
+                        "os.version" -> kernel.ifEmpty { chain.proceed() as? String }
+                        "os.arch" -> arch.ifEmpty { chain.proceed() as? String }
                         "os.name" -> "Linux"
                         else -> chain.proceed()
                     }

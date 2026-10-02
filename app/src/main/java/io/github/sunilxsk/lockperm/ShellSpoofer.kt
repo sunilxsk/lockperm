@@ -52,6 +52,16 @@ internal class ShellSpoofer(
     )
 
     fun install() {
+        
+        
+        
+        val cfg = snapshot()
+        val nothing = FakeProps.build(cfg).isEmpty() &&
+            cfg.hidePaths.isEmpty() && !cfg.rootFakeEnable
+        if (nothing) {
+            logInfo("shell spoofer skipped (nothing to spoof)")
+            return
+        }
         hookRuntimeExec()
         hookProcessBuilder()
         logInfo("shell spoofer installed")
@@ -171,7 +181,7 @@ internal class ShellSpoofer(
         "processor" to 'p', "hardware-platform" to 'i', "operating-system" to 'o',
     )
 
-    private fun unameScript(tokens: List<String>, idx: Int, cfg: XpState.Snapshot): String {
+    private fun unameScript(tokens: List<String>, idx: Int, cfg: XpState.Snapshot): String? {
         val flags = LinkedHashSet<Char>()
         tokens.drop(idx + 1).forEach { a ->
             if (!a.startsWith("-")) return@forEach
@@ -184,7 +194,8 @@ internal class ShellSpoofer(
                 body.forEach { if (it in "asnrvmipo") flags.add(it) }
             }
         }
-        return printfLines(listOf(FakeProps.uname(cfg, flags)))
+        val out = FakeProps.uname(cfg, flags) ?: return null
+        return printfLines(listOf(out))
     }
 
     
@@ -200,10 +211,14 @@ internal class ShellSpoofer(
     private fun procContent(path: String, cfg: XpState.Snapshot): String? {
         FakeFiles.content(path)?.let { return it }
         return when (path) {
-            "/proc/sys/kernel/osrelease" -> FakeProps.kernelVersion(cfg)
+            
+            
+            "/proc/sys/kernel/osrelease" -> FakeProps.kernelVersion(cfg).ifEmpty { null }
             "/proc/sys/kernel/ostype" -> "Linux"
-            "/proc/sys/kernel/version" -> FakeProps.procVersion(cfg)
-            "/proc/sys/kernel/arch" -> FakeProps.arch(cfg)
+            "/proc/sys/kernel/version" ->
+                FakeProps.procVersion(cfg)
+                    .takeIf { FakeProps.kernelVersion(cfg).isNotEmpty() }
+            "/proc/sys/kernel/arch" -> FakeProps.arch(cfg).ifEmpty { null }
             else -> null
         }
     }

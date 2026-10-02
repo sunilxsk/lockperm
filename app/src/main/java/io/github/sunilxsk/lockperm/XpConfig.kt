@@ -42,6 +42,51 @@ object XpConfig {
     const val DEF_NATIVE_ANTI_DETECT = true
 
     
+    
+    
+    
+    
+    
+    const val KEY_NATIVE_APP_MODE = "native_app_mode"
+
+    
+    const val NATIVE_APP_DEFAULT = 0
+    
+    const val NATIVE_APP_ON = 1
+    
+    const val NATIVE_APP_OFF = 2
+
+    fun nativeAppModeLabel(mode: Int): String = when (mode) {
+        NATIVE_APP_ON -> "强制开启"
+        NATIVE_APP_OFF -> "强制关闭"
+        else -> "跟随全局"
+    }
+
+    
+
+
+
+
+
+
+
+
+    object NativeGroup {
+        const val PROP = 1 shl 0    
+        const val UNAME = 1 shl 1   
+        const val TIME = 1 shl 2    
+        const val FILE = 1 shl 3    
+        const val STAT = 1 shl 4    
+        const val DIR = 1 shl 5     
+        const val EXEC = 1 shl 6    
+        const val EXIT = 1 shl 7    
+        const val NET = 1 shl 8     
+        const val READ = 1 shl 9    
+        const val MMAP = 1 shl 10   
+        const val GPU = 1 shl 11    
+    }
+
+    
 
 
 
@@ -1002,6 +1047,7 @@ object XpConfig {
         KEY_HIDE_PATHS to "",
         KEY_NATIVE_HOOK to DEF_NATIVE_HOOK,
         KEY_NATIVE_BLOCK_EXIT to DEF_NATIVE_BLOCK_EXIT,
+        KEY_NATIVE_APP_MODE to NATIVE_APP_DEFAULT,
         KEY_NATIVE_ANTI_DETECT to DEF_NATIVE_ANTI_DETECT,
         KEY_ENABLE_JS to false,
         KEY_ENABLE_UA to false,
@@ -1559,6 +1605,203 @@ object XpConfig {
                 if (v.equals("null", ignoreCase = true)) v = ""
                 k to v
             } ?: emptyList()
+
+    
+    
+    
+    
+    
+    
+    
+
+    
+
+
+    
+
+
+
+
+
+
+    data class NativeBits(
+        val enableBuild: Boolean = false,
+        val buildFields: Set<String> = emptySet(),   
+        val customProps: Map<String, String> = emptyMap(),
+        val exSdkInt: Int = 0,
+        val exKernel: String = "",
+        val exArch: String = "",
+        val exCpuEnable: Boolean = false,
+        val exCpuInfoHw: String = "",
+        val exPlatform: String = "",
+        val exDevOff: Boolean = false,
+        val exGpu: String = "",
+        val exTimeEnable: Boolean = false,
+        val exTimeOffset: Int = 0,
+        val exUptimeEnable: Boolean = false,
+        val hidePaths: List<String> = emptyList(),
+        val rootFakeFile: Boolean = false,
+        val blockExec: Boolean = false,
+        val nativeBlockExit: Boolean = false,
+        val vpnHideIface: Boolean = false,
+        val nativeAntiDetect: Boolean = false,
+    )
+
+    
+    internal fun nativeBits(cfg: XpState.Snapshot): NativeBits = NativeBits(
+        enableBuild = cfg.enableBuild,
+        buildFields = cfg.buildValues.keys,
+        customProps = cfg.customProps,
+        exSdkInt = cfg.exSdkInt,
+        exKernel = cfg.exKernel,
+        exArch = cfg.exArch,
+        exCpuEnable = cfg.exCpuEnable,
+        exCpuInfoHw = cfg.exCpuInfoHw,
+        exPlatform = cfg.exPlatform,
+        exDevOff = cfg.exDevOff,
+        exGpu = cfg.exGpu,
+        exTimeEnable = cfg.exTimeEnable,
+        exTimeOffset = cfg.exTimeOffset,
+        exUptimeEnable = cfg.exUptimeEnable,
+        hidePaths = cfg.hidePaths,
+        rootFakeFile = cfg.rootFakeEnable && cfg.rootFakeFile,
+        blockExec = cfg.blockExec,
+        nativeBlockExit = cfg.nativeBlockExit,
+        vpnHideIface = cfg.vpnHideEnable && cfg.vpnHideIface,
+        nativeAntiDetect = cfg.nativeAntiDetect,
+    )
+
+    
+    fun nativeBits(cfg: XpConfigState): NativeBits {
+        val filled = BUILD_FIELDS
+            .filter { cfg.str(it.key, "").isNotBlank() }
+            .map { it.field }.toSet()
+        return NativeBits(
+            enableBuild = cfg.bool(KEY_ENABLE_BUILD, true),
+            buildFields = filled,
+            customProps = decodeProps(cfg.str(KEY_CUSTOM_PROPS, "")).toMap(),
+            exSdkInt = cfg.int(KEY_FAKE_SDK_INT, 0),
+            exKernel = cfg.str(KEY_FAKE_KERNEL, "").trim(),
+            exArch = cfg.str(KEY_FAKE_ARCH, "").trim(),
+            exCpuEnable = cfg.bool(KEY_FAKE_CPU_ENABLE, false),
+            exCpuInfoHw = cfg.str(KEY_FAKE_CPUINFO_HW, "").trim(),
+            exPlatform = cfg.str(KEY_FAKE_PLATFORM, "").trim(),
+            exDevOff = cfg.bool(KEY_FAKE_DEV_OFF, false),
+            exGpu = cfg.str(KEY_FAKE_GPU, "").trim(),
+            exTimeEnable = cfg.bool(KEY_FAKE_TIME_ENABLE, false),
+            exTimeOffset = cfg.int(KEY_FAKE_TIME_OFFSET, 0),
+            exUptimeEnable = cfg.bool(KEY_FAKE_UPTIME_ENABLE, false),
+            hidePaths = decodePathLines(cfg.str(KEY_HIDE_PATHS, "")),
+            rootFakeFile = cfg.bool(KEY_ROOT_FAKE_ENABLE, false) &&
+                cfg.bool(KEY_ROOT_FAKE_FILE, true),
+            blockExec = cfg.bool(KEY_BLOCK_EXEC, false),
+            nativeBlockExit = cfg.bool(KEY_NATIVE_BLOCK_EXIT, DEF_NATIVE_BLOCK_EXIT),
+            vpnHideIface = cfg.bool(KEY_VPN_HIDE_ENABLE, false) &&
+                cfg.bool(KEY_VPN_HIDE_IFACE, true),
+            nativeAntiDetect = cfg.bool(KEY_NATIVE_ANTI_DETECT, DEF_NATIVE_ANTI_DETECT),
+        )
+    }
+
+    
+
+
+    fun nativeGroups(b: NativeBits): Pair<Int, List<String>> {
+        val g = NativeGroup
+        var mask = 0
+        val labels = LinkedHashSet<String>()
+
+        fun need(bit: Int, label: String) {
+            mask = mask or bit
+            labels.add(label)
+        }
+
+        
+        val hasProps = b.customProps.isNotEmpty() ||
+            (b.enableBuild && (
+                b.buildFields.isNotEmpty() || b.exSdkInt > 0 || b.exDevOff ||
+                    b.exKernel.isNotEmpty() || b.exArch.isNotEmpty() ||
+                    b.exCpuInfoHw.isNotEmpty() || b.exPlatform.isNotEmpty() ||
+                    b.exCpuEnable
+                ))
+        if (hasProps) need(g.PROP, "系统属性伪装")
+
+        
+        if (b.enableBuild && (b.exKernel.isNotEmpty() || b.exArch.isNotEmpty())) {
+            need(g.UNAME, " ")
+        }
+
+        
+        if (b.enableBuild &&
+            ((b.exTimeEnable && b.exTimeOffset != 0) || b.exUptimeEnable)
+        ) {
+            need(g.TIME, " ")
+        }
+
+        
+        val cpuOn = b.enableBuild && (
+            b.exCpuEnable || b.exCpuInfoHw.isNotEmpty() ||
+                b.buildFields.contains("SOC_MODEL") || b.buildFields.contains("HARDWARE")
+            )
+        val spoofFiles = (b.enableBuild && b.exKernel.isNotEmpty()) ||
+            cpuOn || (b.enableBuild && b.exUptimeEnable) || b.vpnHideIface
+
+        
+        val hideOn = b.hidePaths.isNotEmpty()
+        val rootOn = b.rootFakeFile
+        if (hideOn) need(g.STAT, " ")
+        if (rootOn) need(g.STAT, "Root 伪装")
+
+        if (spoofFiles) need(g.FILE, " ")
+        else if (hideOn || rootOn) need(g.FILE, "文件访问拦截")
+        if (hideOn) need(g.DIR, "。")
+
+        
+        if (b.blockExec) need(g.EXEC, "命令拦截")
+
+        
+        if (b.nativeBlockExit) need(g.EXIT, "退出指拦截")
+
+        
+        if (b.vpnHideIface) need(g.NET, "VPN隐藏")
+
+        
+        if (b.enableBuild && b.exGpu.isNotEmpty()) need(g.GPU, "GPU 伪装")
+
+        if (mask != 0 && b.nativeAntiDetect) need(g.READ or g.MMAP or g.FILE, " ")
+
+        return mask to labels.toList()
+    }
+
+    internal fun nativeGroups(cfg: XpState.Snapshot): Pair<Int, List<String>> =
+        nativeGroups(nativeBits(cfg))
+
+    
+    internal fun hasNativeWork(cfg: XpState.Snapshot): Boolean = nativeGroups(cfg).first != 0
+
+    
+    fun hasNativeWork(cfg: XpConfigState): Boolean = nativeGroups(nativeBits(cfg)).first != 0
+
+    
+
+
+
+
+    fun nativeResolution(cfg: XpConfigState): Pair<Boolean, String> {
+        val globalOn = cfg.bool(KEY_NATIVE_HOOK, DEF_NATIVE_HOOK)
+        val mode = cfg.int(KEY_NATIVE_APP_MODE, NATIVE_APP_DEFAULT)
+        val on = when (mode) {
+            NATIVE_APP_ON -> true
+            NATIVE_APP_OFF -> false
+            else -> globalOn
+        }
+        val labels = nativeGroups(nativeBits(cfg)).second
+        val hint = when {
+            !on -> "原生层已关闭：本应用只走 Java 层钩子"
+            labels.isEmpty() -> "没有开启任何原生层的功能，原生层钩子不会被注入"
+            else -> "原生层已开启：${labels.joinToString("、")}"
+        }
+        return (on && labels.isNotEmpty()) to hint
+    }
 
     
     fun decodePathLines(raw: String?): List<String> =

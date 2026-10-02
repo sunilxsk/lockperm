@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <!-- Android 11+ 枚举已安装应用需要此权限 -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesQuery" />
@@ -17,7 +16,6 @@
             android:name=".MainActivity"
             android:exported="true" />
 
-        <!-- 启动图标别名：同一时刻只启用一个，用于免重装切换桌面图标 -->
         <activity-alias
             android:name=".AliasDefault"
             android:enabled="true"

@@ -234,6 +234,12 @@ internal object XpState {
         val nativeHook: Boolean = XpConfig.DEF_NATIVE_HOOK,
         val nativeBlockExit: Boolean = XpConfig.DEF_NATIVE_BLOCK_EXIT,
         val nativeAntiDetect: Boolean = XpConfig.DEF_NATIVE_ANTI_DETECT,
+        
+        val nativeAppMode: Int = XpConfig.NATIVE_APP_DEFAULT,
+        
+        val nativeActive: Boolean = false,
+        
+        val nativeGroups: Int = 0,
 
         val enableJs: Boolean = true,
         val jsCode: String = "",
@@ -536,6 +542,7 @@ internal object XpState {
             nativeAntiDetect = raw.bool(
                 XpConfig.KEY_NATIVE_ANTI_DETECT, XpConfig.DEF_NATIVE_ANTI_DETECT
             ),
+            nativeAppMode = map.int(XpConfig.KEY_NATIVE_APP_MODE, XpConfig.NATIVE_APP_DEFAULT),
             enableJs = map.bool(XpConfig.KEY_ENABLE_JS, false),
             jsCode = map.str(XpConfig.KEY_JS_CODE, XpDefaults.JS),
             enableUa = map.bool(XpConfig.KEY_ENABLE_UA, false),
@@ -642,7 +649,31 @@ internal object XpState {
                 prefs, map, XpConfig.PREFIX_APP_FAKE, XpConfig.LEGACY_FAKE_READ, "假数据组"
             ),
         )
+        snapshot = resolveNative(snapshot)
         return snapshot
+    }
+
+    
+
+
+
+
+
+
+
+
+    private fun resolveNative(s: Snapshot): Snapshot {
+        val on = when (s.nativeAppMode) {
+            XpConfig.NATIVE_APP_ON -> true
+            XpConfig.NATIVE_APP_OFF -> false
+            else -> s.nativeHook
+        }
+        val groups = if (on) XpConfig.nativeGroups(s).first else 0
+        return s.copy(
+            nativeHook = on,
+            nativeActive = on && groups != 0,
+            nativeGroups = groups,
+        )
     }
 
     private fun Map<String, Any?>.bool(key: String, def: Boolean): Boolean =
