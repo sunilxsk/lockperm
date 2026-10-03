@@ -1,5 +1,33 @@
 # LockPerm
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/sunilxsk/lockperm/refs/heads/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="LockPerm" width="128" height="128">
+</p>
+
+<h1 align="center">LockPerm</h1>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white" alt="Platform">
+
+  <img src="https://img.shields.io/badge/Language-Kotlin-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin">
+  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white" alt="Compose">
+
+  <img src="https://img.shields.io/badge/License-AGPL--3.0-orange" alt="License">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/compileSdk-36-brightgreen" alt="compileSdk">
+  <img src="https://img.shields.io/badge/JDK-17%2B-red" alt="JDK">
+
+</p>
+
+<p align="center">
+  <b>伪装 · 防护 </b><br>
+  一个基于 libxposed 的 Xposed 模块，把「伪装」和「防护」两件事放在一起。
+</p>
+
+---
+
 一个基于 **libxposed** 的 Xposed 模块，把「伪装」和「防护」两件事放在一起：伪装负责改变应用读到的内容，防护负责阻止应用滥用权限。
 
 在「应用」页把目标应用加入作用域，再到「防护 / 伪装」两个页签里勾选它需要的功能即可。每个应用的配置互相独立，互不干扰。
@@ -23,7 +51,7 @@
 
 ### 防护
 
-- **无障碍防护**：禁止开启无障碍服务，并破坏其读取屏幕、监听通知、模拟操作、按键监听等能力
+- **无障碍防护**：禁止开启无障碍服务，并禁用其读取屏幕、监听通知、模拟操作、按键监听等能力
 - **设备管理员防护**：阻止应用滥用设备管理员 / Device Owner 权限
 - **悬浮窗拦截**：阻止系统级悬浮窗创建
 - **壁纸拦截**：阻止应用随意替换壁纸
@@ -38,7 +66,6 @@
 - **安装拦截**：阻止静默安装 / 引导安装 APK
 - **打印 / 投屏拦截**
 - **通知发送拦截**
-- **网络域名过滤**：按黑名单 / 白名单拦截网络请求
 - **屏幕捕获拦截**：三种策略 —— 伪造图片 / 视频、伪造静态文字、直接拒绝授权
 - **文件创建拦截**：拦截 MediaStore 与 File / NIO 的创建、写入、删除等操作
 - **隐藏应用列表**：让应用枚举不到你装了哪些软件，支持白名单 / 黑名单
@@ -46,9 +73,9 @@
 - **Shizuku 拦截**：阻止向 Shizuku 申请授权并禁用已授权后的调用
 - **命令执行拦截**：拦截执行命令
 - **退出功能**：倒计时后按指定方式退出
-- **阻止闪退 / 自杀**：拦截应用主动调用 killProcess / exit / halt / 信号等行为，可调强度等级
-- **异常捕获器**：记录崩溃信息到剪贴板或私有目录，可选拦截应用抛出的异常
-- **隐藏路径 / 文件**：让目标应用用任何方式都探测不到指定路径
+- **阻止闪退**：拦截应用主动调用退出，可调强度等级
+- **异常捕获器**：记录崩溃信息到剪贴板或私有目录
+- **隐藏路径 / 文件**：让目标应用用一些方式探测不到指定路径
 
 ### 控制面板
 
@@ -61,7 +88,6 @@
 - 配置页组件缩放
 - 整套配置备份与恢复（导出 / 导入 JSON）
 - 日志开关（默认关闭，排查问题时打开）
-- Native 层 Hook，补 Java 层钩不到的部分
 
 ---
 
@@ -80,10 +106,6 @@ LockPerm/
 ├── build.gradle
 └── settings.gradle
 ```
-
-- **主应用**：Jetpack Compose 编写的配置界面，负责作用域管理、按应用配置、备份恢复、主题与图标设置。
-- **模块入口**：`XposedModuleEntry` 在目标应用进程启动时读取该应用的配置快照，按需安装对应的 Hook。
-- **Native 层**：可选的，补足 Java 层无法覆盖的底层调用（属性读取、文件访问、内核信息等）。
 
 ---
 
@@ -118,7 +140,7 @@ cd LockPerm
 - 模块只在目标应用进程里工作，不会常驻任何后台服务。
 - 崩溃日志写在 `/storage/emulated/0/Android/data/{目标包名}/files/error.log`。
 - 防护类功能可能影响目标应用的正常使用，请按需开启。
-- 禁止对系统进程、金融、游戏、社交类 App 使用，否则后果自负。
+- 🚫禁止对系统进程、金融、游戏、社交类 App 使用，否则后果自负。
 
 ---
 
@@ -135,3 +157,5 @@ cd LockPerm
 - [Material Icons Extended](https://github.com/google/material-design-icons) — Apache-2.0
 - [kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) — Apache-2.0
 - [Coil](https://github.com/coil-kt/coil) — Apache-2.0
+
+。
