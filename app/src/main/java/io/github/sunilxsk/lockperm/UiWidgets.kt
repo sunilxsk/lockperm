@@ -122,6 +122,9 @@ class XpConfigState {
         if (dirty) runCatching { ed.apply() }
     }
 
+    
+    fun rawPrefs(): SharedPreferences? = prefs
+
     fun bool(key: String, default: Boolean): Boolean = (values.value[key] as? Boolean) ?: default
 
     fun int(key: String, default: Int): Int = when (val v = values.value[key]) {

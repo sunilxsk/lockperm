@@ -217,9 +217,25 @@ internal object FakeProps {
         }
 
         
-        cfg.customProps.forEach { (k, v) ->
-            if (k.isBlank()) return@forEach
-            expand(k).forEach { out[it] = v }
+        
+        
+        
+        
+        
+        
+        if (masterOn) {
+            val radio = bv["RADIO"].orEmpty()
+            if (radio.isNotEmpty()) {
+                put("gsm.version.baseband", radio)
+                put("gsm.version.baseband1", radio)
+                put("gsm.version.baseband2", radio)
+                put("gsm.baseband.capability", radio)
+                put("gsm.version.ril-impl", radio)
+                put("ril.hw.version", radio)
+                put("ro.build.expect.baseband", radio)
+                put("persist.radio.hw_version", radio)
+                put("vendor.gsm.version.baseband", radio)
+            }
         }
 
         return out
@@ -249,6 +265,32 @@ internal object FakeProps {
 
     
 
+
+
+
+
+
+    fun abiList(arch: String): List<String> = when {
+        arch.isEmpty() -> emptyList()
+        arch.startsWith("aarch64") || arch.startsWith("arm64") ->
+            listOf("arm64-v8a", "armeabi-v7a", "armeabi")
+
+        arch.startsWith("armv7") || arch.startsWith("armv8") || arch == "arm" ->
+            listOf("armeabi-v7a", "armeabi")
+
+        arch == "x86_64" || arch == "amd64" -> listOf("x86_64", "x86")
+        arch == "x86" || arch == "i686" -> listOf("x86", "armeabi-v7a", "armeabi")
+        else -> emptyList()
+    }
+
+    
+    fun abiList32(arch: String): List<String> = abiList(arch).filter { it.contains("32") || it in setOf("armeabi-v7a", "armeabi", "x86") }
+
+    
+    fun abiList64(arch: String): List<String> = abiList(arch).filter { it in setOf("arm64-v8a", "x86_64") }
+
+    
+
     
 
 
@@ -273,7 +315,7 @@ internal object FakeProps {
                 "(Android (8508608, based on r450784e) clang version 17.0.2) " +
                 "#1 SMP PREEMPT Mon Jan 1 00:00:00 UTC 2024"
 
-    private const val UNAME_VERSION = "#1 SMP PREEMPT Mon Jan 1 00:00:00 UTC 2024"
+    const val UNAME_VERSION = "#1 SMP PREEMPT Mon Jan 1 00:00:00 UTC 2024"
 
     
     fun uname(cfg: XpState.Snapshot, flags: Set<Char>): String? {
@@ -338,8 +380,38 @@ internal object FakeProps {
         if (hw.isEmpty()) return ""
         val raw: String = FileSpoofer.readRaw("/proc/cpuinfo") ?: ""
         if (raw.isBlank()) return syntheticCpuInfo(hw, cfg.exCpuCores)
+
+        
+        
+        
+        
+        val n = Regex("^processor\\s*:", RegexOption.MULTILINE).findAll(raw).count()
+            .takeIf { it > 0 }?.coerceIn(1, 32) ?: cfg.exCpuCores.coerceIn(1, 32)
+        val (mins, maxs, _) = coreFreqs(cfg, n)
+        var idx = -1
         return raw.split("\n").joinToString("\n") { line: String ->
-            if (line.startsWith("Hardware")) "Hardware\t: $hw" else line
+            val key = line.substringBefore(':').trim()
+            when {
+                key == "processor" -> {
+                    idx++
+                    line
+                }
+                key == "Hardware" -> "Hardware\t: $hw"
+                key == "Processor" -> "Processor\t: $hw"
+                key == "model name" -> "model name\t: $hw"
+                
+                
+                key == "cpu MHz" -> if (idx in 0 until n) {
+                    "cpu MHz\t: ${String.format(Locale.US, "%.2f", maxs[idx] / 1000f)}"
+                } else line
+                key == "BogoMIPS" -> line
+                else -> line
+            }
+        }
+        
+        
+        .let { text ->
+            if (text.contains("Hardware")) text else "$text\nHardware\t: $hw\n"
         }
     }
 
@@ -354,14 +426,88 @@ internal object FakeProps {
     
 
     
-    private val CPU_FREQ: Map<String, IntArray> = mapOf(
-        "SM8450" to intArrayOf(691_200, 1_766_400, 806_400, 2_995_200),
-        "MT6983" to intArrayOf(500_000, 2_000_000, 650_000, 2_500_000),
-        "S5E9925" to intArrayOf(500_000, 1_900_000, 700_000, 2_800_000),
-        "Kirin 9000" to intArrayOf(500_000, 2_050_000, 700_000, 3_130_000),
-        "SM8250" to intArrayOf(691_200, 1_766_400, 806_400, 2_841_600),
-    )
-    private val CPU_FREQ_DEF = intArrayOf(500_000, 2_000_000, 650_000, 2_500_000)
+
+
+
+
+
+
+    private fun coreFreqs(cfg: XpState.Snapshot, n: Int): Triple<IntArray, IntArray, IntArray> {
+        val clusters = XpConfig.cpuClusters(cpuHardware(cfg))
+
+        
+        val min = IntArray(n)
+        val max = IntArray(n)
+        val base = IntArray(n)
+        var i = 0
+        for (c in clusters) {
+            repeat(c.coreCount()) {
+                if (i >= n) return@repeat
+                min[i] = c.minKhz
+                max[i] = c.maxKhz
+                base[i] = c.maxKhz
+                i++
+            }
+            if (i >= n) break
+        }
+        val last = clusters.last()
+        while (i < n) {
+            min[i] = last.minKhz
+            max[i] = last.maxKhz
+            base[i] = last.maxKhz
+            i++
+        }
+
+        
+        XpConfig.parseFreqList(cfg.exCpuMinFreq).let { list ->
+            if (list.isNotEmpty()) {
+                for (k in 0 until n) min[k] = list[minOf(k, list.lastIndex)]
+            }
+        }
+        XpConfig.parseFreqList(cfg.exCpuMaxFreq).let { list ->
+            if (list.isNotEmpty()) {
+                for (k in 0 until n) max[k] = list[minOf(k, list.lastIndex)]
+            }
+        }
+
+        
+        val cur = IntArray(n)
+        XpConfig.parseFreqList(cfg.exCpuCurFreq).let { list ->
+            if (list.isNotEmpty()) {
+                for (k in 0 until n) cur[k] = list[minOf(k, list.lastIndex)]
+                return@let
+            }
+            var j = 0
+            for (c in clusters) {
+                val v = (c.minKhz + (c.maxKhz - c.minKhz) * 0.72f).toInt()
+                repeat(c.coreCount()) { if (j < n) cur[j++] = v }
+                if (j >= n) break
+            }
+            
+            val tail = if (n > 1) { if (cur[n - 1] > 0) cur[n - 1] else max[n - 1] } else max[0]
+            while (j < n) cur[j++] = tail
+        }
+        return Triple(min, max, cur)
+    }
+
+    
+    fun coreFreqsForPreview(
+        cfg: XpState.Snapshot,
+        n: Int,
+    ): Triple<IntArray, IntArray, IntArray> = coreFreqs(cfg, n.coerceIn(1, 32))
+
+    
+    private fun clusterTopo(clusters: List<XpConfig.CpuCluster>, n: Int): List<IntRange> {
+        val out = ArrayList<IntRange>()
+        var start = 0
+        for (c in clusters) {
+            if (start >= n) break
+            val end = minOf(start + c.coreCount(), n) - 1
+            out.add(start..end)
+            start = end + 1
+        }
+        return out
+    }
 
     
 
@@ -370,13 +516,20 @@ internal object FakeProps {
     fun cpuFiles(cfg: XpState.Snapshot): Map<String, String> {
         val out = LinkedHashMap<String, String>()
         val info = cpuInfo(cfg)
-        if (info.isEmpty()) return out
-        out["/proc/cpuinfo"] = info
+        if (info.isNotEmpty()) out["/proc/cpuinfo"] = info
 
-        val cores = Regex("^processor\\s*:", RegexOption.MULTILINE)
-            .findAll(info).count().takeIf { it > 0 }
-            ?: cfg.exCpuCores.coerceIn(1, 32)
-        val n = cores.coerceIn(1, 32)
+        
+        
+        
+        val hw0 = cpuHardware(cfg)
+        if (info.isEmpty() && hw0.isEmpty()) return out
+
+        val cores = if (info.isNotEmpty()) {
+            Regex("^processor\\s*:", RegexOption.MULTILINE).findAll(info).count()
+        } else {
+            0
+        }
+        val n = cores.takeIf { it > 0 }?.coerceIn(1, 32) ?: cfg.exCpuCores.coerceIn(1, 32)
         val topo = "0-${n - 1}"
 
         
@@ -391,28 +544,51 @@ internal object FakeProps {
         out["/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"] = "schedutil"
 
         val hw = cpuHardware(cfg)
-        val freq = CPU_FREQ[hw] ?: CPU_FREQ_DEF
+        val clusters = XpConfig.cpuClusters(hw)
+        val (mins, maxs, curs) = coreFreqs(cfg, n)
         for (i in 0 until n) {
-            val big = i >= n - 2
-            val lo = if (big) freq[2] else freq[0]
-            val hi = if (big) freq[3] else freq[1]
             val base = "/sys/devices/system/cpu/cpu$i/cpufreq"
-            out["$base/cpuinfo_min_freq"] = lo.toString()
-            out["$base/cpuinfo_max_freq"] = hi.toString()
-            out["$base/scaling_min_freq"] = lo.toString()
-            out["$base/scaling_max_freq"] = hi.toString()
-            out["$base/scaling_cur_freq"] = hi.toString()
+            out["$base/cpuinfo_min_freq"] = mins[i].toString()
+            out["$base/cpuinfo_max_freq"] = maxs[i].toString()
+            out["$base/scaling_min_freq"] = mins[i].toString()
+            out["$base/scaling_max_freq"] = maxs[i].toString()
+            out["$base/scaling_cur_freq"] = curs[i].toString()
+            
+            out["$base/cpuinfo_cur_freq"] = curs[i].toString()
+            out["$base/scaling_available_frequencies"] =
+                "${mins[i]} ${(mins[i] + maxs[i]) / 2} ${maxs[i]}"
+            out["$base/scaling_governor"] = "schedutil"
+            out["$base/cpuinfo_transition_latency"] = "1000"
+            
+            out["$base/scaling_available_governors"] = "schedutil ondemand performance powersave"
         }
 
         
-        val little = "0-${(n - 3).coerceAtLeast(0)}"
-        val bigTopo = "${(n - 2).coerceAtMost(n - 1)}-${n - 1}"
-        out["/sys/devices/system/cpu/cpufreq/policy0/related_cpus"] = little
-        out["/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_min_freq"] = freq[0].toString()
-        out["/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq"] = freq[1].toString()
-        out["/sys/devices/system/cpu/cpufreq/policy7/related_cpus"] = bigTopo
-        out["/sys/devices/system/cpu/cpufreq/policy7/cpuinfo_min_freq"] = freq[2].toString()
-        out["/sys/devices/system/cpu/cpufreq/policy7/cpuinfo_max_freq"] = freq[3].toString()
+        
+        val ranges = clusterTopo(clusters, n)
+        ranges.forEachIndexed { pi, r ->
+            val topo = if (r.first == r.last) "${r.first}" else "${r.first}-${r.last}"
+            val p = "/sys/devices/system/cpu/cpufreq/policy$r.first"
+            out["$p/related_cpus"] = topo
+            out["$p/affected_cpus"] = topo
+            out["$p/cpuinfo_min_freq"] = mins[r.first].toString()
+            out["$p/cpuinfo_max_freq"] = maxs[r.first].toString()
+            out["$p/scaling_min_freq"] = mins[r.first].toString()
+            out["$p/scaling_max_freq"] = maxs[r.first].toString()
+            out["$p/scaling_cur_freq"] = curs[r.first].toString()
+            out["$p/scaling_governor"] = "schedutil"
+            out["$p/cpuinfo_transition_latency"] = "1000"
+            
+            val alias = "/sys/devices/system/cpu/cpufreq/policy${pi * 4}"
+            if (alias != p) {
+                out["$alias/related_cpus"] = topo
+                out["$alias/cpuinfo_min_freq"] = mins[r.first].toString()
+                out["$alias/cpuinfo_max_freq"] = maxs[r.first].toString()
+                out["$alias/scaling_cur_freq"] = curs[r.first].toString()
+            }
+        }
+        
+        out["/sys/devices/system/cpu/cpufreq/boost"] = "0"
 
         
         val platform = cfg.exPlatform.ifEmpty { hw }
@@ -434,22 +610,74 @@ internal object FakeProps {
         return out
     }
 
+    
+
+
+
+
+
+    fun memInfo(cfg: XpState.Snapshot): String {
+        val mb = cfg.exMemMb.coerceIn(256, 65536)
+        val kb = mb * 1024
+        val raw = FileSpoofer.readRaw("/proc/meminfo")
+        if (raw.isNullOrBlank()) {
+            return buildString {
+                append("MemTotal:       $kb kB\n")
+                append("MemFree:        ${kb / 4} kB\n")
+                append("MemAvailable:   ${kb / 2} kB\n")
+                append("Buffers:        ${kb / 32} kB\n")
+                append("Cached:         ${kb / 3} kB\n")
+                append("SwapCached:         0 kB\n")
+                append("Active:         ${kb / 3} kB\n")
+                append("Inactive:       ${kb / 4} kB\n")
+                append("SwapTotal:      ${kb / 2} kB\n")
+                append("SwapFree:       ${kb / 2} kB\n")
+            }
+        }
+        var hit = false
+        val out = raw.split("\n").map { line ->
+            if (line.startsWith("MemTotal:")) {
+                hit = true
+                "MemTotal:       $kb kB"
+            } else {
+                line
+            }
+        }
+        return if (hit) out.joinToString("\n") else "MemTotal:       $kb kB\n" + raw
+    }
+
+    
     private fun syntheticCpuInfo(hw: String, cores: Int): String {
         val n = cores.coerceIn(1, 32)
-        val sb = StringBuilder()
-        val feats = "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp " +
-                "cpuid asimdrdm lrcpc dcpop asimddp"
-        for (i in 0 until n) {
-            sb.append("processor\t: $i\n")
-            sb.append("BogoMIPS\t: 38.40\n")
-            sb.append("Features\t: $feats\n")
-            sb.append("CPU implementer\t: 0x41\n")
-            sb.append("CPU architecture: 8\n")
-            sb.append("CPU variant\t: 0x2\n")
-            sb.append("CPU part\t: 0xd05\n")
-            sb.append("CPU revision\t: ${i % 4}\n\n")
+        val implementer = when {
+            hw.uppercase().startsWith("MT") -> "0x41"
+            hw.uppercase().startsWith("SM") -> "0x51"
+            hw.contains("Kirin", true) -> "0x48"
+            hw.uppercase().startsWith("S5E") -> "0x53"
+            else -> "0x41"
         }
-        sb.append("Hardware\t: $hw\n")
-        return sb.toString()
+        val clusters = XpConfig.cpuClusters(hw)
+        
+        val scaled = if (clusters.sumOf { it.coreCount() } == n) {
+            clusters
+        } else {
+            val total = clusters.sumOf { it.coreCount() }.coerceAtLeast(1)
+            val out = ArrayList<XpConfig.CpuCluster>()
+            var left = n
+            clusters.forEachIndexed { i, c ->
+                val take = if (i == clusters.lastIndex) {
+                    left
+                } else {
+                    (c.coreCount().toFloat() / total * n).toInt().coerceIn(1, left)
+                }
+                if (take > 0) {
+                    out.add(c.copy(cores = take))
+                    left -= take
+                }
+            }
+            if (out.isEmpty()) out.add(clusters.first().copy(cores = n))
+            out
+        }
+        return XpConfig.cpuinfoOf(hw, implementer, scaled)
     }
 }

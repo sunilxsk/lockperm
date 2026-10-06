@@ -53,6 +53,8 @@ internal class FileGuard(
 
 
     private fun on(key: String): Boolean {
+        
+        if (XpState.Flags.forceFileGuard) return true
         val cfg = snapshot()
         if (!cfg.fileGuardEnable) return false
         return cfg.fileOpAll || key in cfg.fileOps

@@ -77,9 +77,29 @@ object NativeBridge {
         if (!loaded) 0 else runCatching { nativeHookCount() }.getOrDefault(0)
 
     
+
+
+
+
+
+
+    fun probe(): Map<String, String> {
+        if (!loaded) return emptyMap()
+        val raw = runCatching { nativeProbe() }.getOrNull().orEmpty()
+        if (raw.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<String, String>()
+        raw.split('\n').forEach { line ->
+            val i = line.indexOf('\t')
+            if (i > 0) out[line.substring(0, i)] = line.substring(i + 1)
+        }
+        return out
+    }
+
+    
     private external fun applyConfig(payload: String): Boolean
     private external fun setEnabled(on: Boolean)
     private external fun isReady(): Boolean
     private external fun nativeVersion(): String
     private external fun nativeHookCount(): Int
+    private external fun nativeProbe(): String
 }

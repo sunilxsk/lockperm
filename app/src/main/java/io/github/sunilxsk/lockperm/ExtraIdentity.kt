@@ -139,6 +139,10 @@ internal class ExtraIdentity(
             map["getDeviceId"] = cfg.exImei
             map["getImei"] = cfg.exImei
         }
+        
+        
+        val radio = cfg.buildValues["RADIO"].orEmpty()
+        if (radio.isNotEmpty()) map["getDeviceSoftwareVersion"] = radio
         if (cfg.exMeid.isNotEmpty()) map["getMeid"] = cfg.exMeid
 
         if (map.isEmpty()) return
@@ -577,23 +581,33 @@ internal class ExtraIdentity(
             }
         }
 
-        
-        val cfg = snapshot()
+        logInfo("cpu readers installed (cores=$cores)")
+    }
+
+    
+
+
+
+
+
+
+
+    private fun hookCpuBuildFields(cfg: XpState.Snapshot) {
         val b = loadClassAnywhere("android.os.Build") ?: return
-        val preset = if (cfg.exCpuMode == XpConfig.CPU_MODE_PRESET) {
+        val preset = if (cfg.exCpuEnable && cfg.exCpuMode == XpConfig.CPU_MODE_PRESET) {
             XpConfig.CPU_PRESETS.getOrNull(cfg.exCpuPreset)
         } else {
             null
         }
         val hw = preset?.soc ?: FakeProps.cpuHardware(cfg)
-        if (hw.isNotEmpty()) {
-            setStaticString(b, "HARDWARE", hw)
-            runCatching { setStaticString(b, "SOC_MODEL", hw) }
-            runCatching { setStaticString(b, "SOC_MANUFACTURER", XpConfig.socVendor(hw)) }
-            runCatching { setStaticString(b, "SOC_DEVICE", hw) }
-        }
+        if (hw.isEmpty()) return
+        setStaticString(b, "HARDWARE", hw)
+        runCatching { setStaticString(b, "SOC_MODEL", hw) }
+        runCatching { setStaticString(b, "SOC_MANUFACTURER", XpConfig.socVendor(hw)) }
+        runCatching { setStaticString(b, "SOC_DEVICE", hw) }
         preset?.let { setStaticString(b, "BOARD", it.board) }
-        logInfo("cpu spoofer installed (cores=$cores hw=$hw)")
+        
+        logInfo("cpu build fields hooked (hw=$hw)")
     }
 
     
@@ -626,6 +640,7 @@ internal class ExtraIdentity(
         if (release.isNotEmpty() && sdk <= 0) sdk = XpConfig.sdkFor(release)
         if (release.isEmpty() && sdk <= 0) return
 
+
         val ver = loadClassAnywhere("android.os.Build\$VERSION") ?: return
 
         if (release.isNotEmpty()) {
@@ -633,6 +648,13 @@ internal class ExtraIdentity(
             runCatching { setStaticString(ver, "RELEASE_OR_CODENAME", release) }
             runCatching { setStaticString(ver, "CODENAME", "REL") }
             logInfo("android release hooked -> $release")
+        }
+        
+        
+        
+        val real = XpState.RealSdk.value
+        if (sdk > 0 && real > 0 && sdk > real) {
+            logWarn("SDK_INT 伪装为 $sdk，高于本机的 $real —— 若目标应用闪退，多半是这个原因")
         }
         if (sdk > 0) {
             if (setStaticInt(ver, "SDK_INT", sdk)) {
@@ -692,6 +714,13 @@ internal class ExtraIdentity(
         
         
         
+        
+        
+        if (cpuWanted) hookCpuBuildFields(cfg)
+
+        
+        
+        
         if (kernel.isNotEmpty()) runCatching { System.setProperty("os.version", kernel) }
         if (arch.isNotEmpty()) runCatching { System.setProperty("os.arch", arch) }
 
@@ -725,7 +754,80 @@ internal class ExtraIdentity(
                 }
             }
         }
+
+        
+        
+        
+        hookOsUname(cfg)
+
+        
+        hookAbis(cfg)
+
         logInfo("kernel hooked -> $kernel / $arch")
+    }
+
+    
+    private fun hookOsUname(cfg: XpState.Snapshot) {
+        val kernel = FakeProps.kernelVersion(cfg)
+        val arch = FakeProps.arch(cfg)
+        if (kernel.isEmpty() && arch.isEmpty()) return
+        val os = loadClassAnywhere("android.system.Os") ?: return
+        os.declaredMethods.filter {
+            it.name == "uname" && it.parameterTypes.isEmpty()
+        }.forEach { m ->
+            hookMethod(m) { chain ->
+                val r = chain.proceed() ?: return@hookMethod null
+                runCatching {
+                    if (kernel.isNotEmpty()) {
+                        setObjString(r, "release", kernel)
+                        setObjString(r, "version", FakeProps.UNAME_VERSION)
+                        setObjString(r, "sysname", "Linux")
+                    }
+                    if (arch.isNotEmpty()) setObjString(r, "machine", arch)
+                    setObjString(r, "nodename", "localhost")
+                }
+                r
+            }
+        }
+        logInfo("Os.uname() hooked")
+    }
+
+    private fun setObjString(obj: Any, name: String, value: String) {
+        runCatching {
+            val f = obj.javaClass.getDeclaredField(name)
+            f.isAccessible = true
+            runCatching { clearFinal(f) }
+            f.set(obj, value)
+        }
+    }
+
+    
+    private fun hookAbis(cfg: XpState.Snapshot) {
+        val arch = FakeProps.arch(cfg)
+        val all = FakeProps.abiList(arch)
+        if (all.isEmpty()) return
+        val b = loadClassAnywhere("android.os.Build") ?: return
+        runCatching {
+            val f = b.getDeclaredField("SUPPORTED_ABIS")
+            f.isAccessible = true
+            clearFinal(f)
+            f.set(null, all.toTypedArray())
+        }
+        runCatching {
+            val f32 = b.getDeclaredField("SUPPORTED_32_BIT_ABIS")
+            f32.isAccessible = true
+            clearFinal(f32)
+            val v32 = FakeProps.abiList32(arch)
+            f32.set(null, v32.toTypedArray())
+        }
+        runCatching {
+            val f64 = b.getDeclaredField("SUPPORTED_64_BIT_ABIS")
+            f64.isAccessible = true
+            clearFinal(f64)
+            val v64 = FakeProps.abiList64(arch)
+            f64.set(null, v64.toTypedArray())
+        }
+        logInfo("supported abis hooked -> $all")
     }
 
     

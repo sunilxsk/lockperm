@@ -10,6 +10,7 @@ internal object FakeFiles {
     @Volatile var version: String? = null
     @Volatile var temp: String? = null
     @Volatile var capacity: String? = null
+    @Volatile var meminfo: String? = null
 
     
     private val extras = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -20,7 +21,7 @@ internal object FakeFiles {
 
     fun hasAny(): Boolean =
         uptime != null || cpuinfo != null || version != null || temp != null ||
-                capacity != null || extras.isNotEmpty()
+                capacity != null || meminfo != null || extras.isNotEmpty()
 
     fun content(path: String): String? {
         extras[path]?.let { return it }
@@ -28,6 +29,7 @@ internal object FakeFiles {
         if (path == "/proc/cpuinfo") return cpuinfo
         if (path == "/proc/version") return version
         if (path == "/proc/version_signature") return version
+        if (path == "/proc/meminfo") return meminfo
         if (path.startsWith("/sys/class/thermal/") && path.endsWith("/temp")) return temp
         if (path == "/sys/class/power_supply/battery/capacity") return capacity
         return null
@@ -143,6 +145,17 @@ internal class FileSpoofer(
             }
         }
         
+        
+        
+        runCatching {
+            fis.getDeclaredMethod("read", ByteArray::class.java).let { m ->
+                hookMethod(m) { chain ->
+                    val self = chain.getThisObject()
+                    val buf = chain.getArg(0) as? ByteArray ?: return@hookMethod chain.proceed()
+                    feed(self, buf, 0, buf.size) ?: chain.proceed()
+                }
+            }
+        }
         runCatching {
             fis.getDeclaredMethod("read").let { m ->
                 hookMethod(m) { chain ->
@@ -199,6 +212,15 @@ internal class FileSpoofer(
                     val off = chain.getArg(1) as? Int ?: 0
                     val len = chain.getArg(2) as? Int ?: 0
                     feed(self, buf, off, len) ?: chain.proceed()
+                }
+            }
+        }
+        runCatching {
+            raf.getDeclaredMethod("read", ByteArray::class.java).let { m ->
+                hookMethod(m) { chain ->
+                    val self = chain.getThisObject()
+                    val buf = chain.getArg(0) as? ByteArray ?: return@hookMethod chain.proceed()
+                    feed(self, buf, 0, buf.size) ?: chain.proceed()
                 }
             }
         }

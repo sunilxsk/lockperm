@@ -56,11 +56,16 @@ internal class AppListHider(
 
 
     private fun filter(result: Any?): Any? {
+        val list = result as? List<*> ?: return result
+        
+        
+        if (XpState.Flags.forceHideApps) {
+            logWarn("hide apps: forced -> empty list")
+            return emptyList<Any>()
+        }
         val cfg = snapshot()
         if (!cfg.hideAppsEnable) return result
-        val list = result as? List<*> ?: return result
 
-        
         if (cfg.hideAppsMode == 0) {
             logWarn("hide apps: return empty list")
             return emptyList<Any>()

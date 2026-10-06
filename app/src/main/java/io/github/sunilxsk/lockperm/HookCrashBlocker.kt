@@ -210,10 +210,17 @@ internal class HookCrashBlocker(
 
 
 
+    
+
+
+
+
+
+
     private fun hookPassthrough(method: Method, interceptor: (XposedInterface.Chain) -> Any?) {
         if (java.lang.reflect.Modifier.isAbstract(method.modifiers)) return
+        if (!claimHook("HookCrashBlocker", method)) return
         runCatching {
-            deopt(method)
             module.hook(method)
                 .setPriority(XposedInterface.PRIORITY_HIGHEST)
                 .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -239,7 +246,7 @@ internal class HookCrashBlocker(
 
     private fun hookExecMethod(clazz: Class<*>, name: String, vararg params: Class<*>) {
         val m = tryGetMethod(clazz, name, *params) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookPassthrough(m) { chain ->
             if (!swCmd || XpState.Flags.allowExit) {
@@ -259,7 +266,7 @@ internal class HookCrashBlocker(
     private fun hookProcessBuilderStart() {
         val clazz = loadClassAnywhere("java.lang.ProcessBuilder") ?: return
         val m = tryGetMethod(clazz, "start") ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookPassthrough(m) { chain ->
             if (!swCmd || XpState.Flags.allowExit) {
@@ -344,7 +351,7 @@ internal class HookCrashBlocker(
     private fun hookThreadStart() {
         val threadClass = loadClassAnywhere("java.lang.Thread") ?: return
         val m = tryGetMethod(threadClass, "start") ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (!swThread || XpState.Flags.allowExit || guardBypass.get() == true) {
@@ -451,7 +458,7 @@ internal class HookCrashBlocker(
     private fun hookKill(name: String) {
         val clazz = loadClassAnywhere("android.os.Process") ?: return
         val m = tryGetMethod(clazz, name, INT_TYPE) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             val pid = chain.getArg(0) as? Int ?: -1
@@ -465,7 +472,7 @@ internal class HookCrashBlocker(
     private fun hookKillProcessGroup() {
         val clazz = loadClassAnywhere("android.os.Process") ?: return
         val m = tryGetMethod(clazz, "killProcessGroup", INT_TYPE, INT_TYPE) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             val pid = chain.getArg(1) as? Int ?: -1
@@ -479,7 +486,7 @@ internal class HookCrashBlocker(
     private fun hookSimple(className: String, methodName: String, vararg params: Class<*>) {
         val clazz = loadClassAnywhere(className) ?: return
         val m = tryGetMethod(clazz, methodName, *params) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -493,7 +500,7 @@ internal class HookCrashBlocker(
     private fun hookSignal(name: String) {
         val clazz = loadClassAnywhere("android.os.Process") ?: return
         val m = tryGetMethod(clazz, name, INT_TYPE, INT_TYPE) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             val pid = chain.getArg(0) as? Int ?: -1
@@ -508,7 +515,7 @@ internal class HookCrashBlocker(
     private fun hookOsKill() {
         val clazz = loadClassAnywhere("android.system.Os") ?: return
         val m = tryGetMethod(clazz, "kill", INT_TYPE, INT_TYPE) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             val pid = chain.getArg(0) as? Int ?: -1
@@ -523,7 +530,7 @@ internal class HookCrashBlocker(
     private fun hookOsKillpg() {
         val clazz = loadClassAnywhere("android.system.Os") ?: return
         val m = tryGetMethod(clazz, "killpg", INT_TYPE, INT_TYPE) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             val pgid = chain.getArg(0) as? Int ?: -1
@@ -538,7 +545,7 @@ internal class HookCrashBlocker(
     private fun hookOsExit() {
         val clazz = loadClassAnywhere("android.system.Os") ?: return
         val m = tryGetMethod(clazz, "_exit", INT_TYPE) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -552,7 +559,7 @@ internal class HookCrashBlocker(
     private fun hookVmExit() {
         val clazz = loadClassAnywhere("dalvik.system.VMRuntime") ?: return
         val m = tryGetMethod(clazz, "exit", INT_TYPE) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -566,7 +573,7 @@ internal class HookCrashBlocker(
     private fun hookSignalRaise() {
         val signalCls = loadClassAnywhere("sun.misc.Signal") ?: return
         val m = tryGetMethod(signalCls, "raise", signalCls) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -582,7 +589,7 @@ internal class HookCrashBlocker(
     private fun hookAmKillBackground() {
         val clazz = loadClassAnywhere("android.app.ActivityManager") ?: return
         val m = tryGetMethod(clazz, "killBackgroundProcesses", String::class.java) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             val pkg = chain.getArg(0) as? String
@@ -596,7 +603,7 @@ internal class HookCrashBlocker(
     private fun hookAmForceStop() {
         val clazz = loadClassAnywhere("android.app.ActivityManager") ?: return
         val m = tryGetMethod(clazz, "forceStopPackage", String::class.java) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             val pkg = chain.getArg(0) as? String
@@ -612,7 +619,7 @@ internal class HookCrashBlocker(
         val m2 = tryGetMethod(clazz, "killBackgroundProcesses", String::class.java, INT_TYPE)
         val m1 = if (m2 == null) tryGetMethod(clazz, "killBackgroundProcesses", String::class.java) else null
         val m = m2 ?: m1 ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             val pkg = chain.getArg(0) as? String
@@ -628,7 +635,7 @@ internal class HookCrashBlocker(
         val m2 = tryGetMethod(clazz, "forceStopPackage", String::class.java, INT_TYPE)
         val m1 = if (m2 == null) tryGetMethod(clazz, "forceStopPackage", String::class.java) else null
         val m = m2 ?: m1 ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             val pkg = chain.getArg(0) as? String
@@ -658,7 +665,7 @@ internal class HookCrashBlocker(
         val threadClass = loadClassAnywhere("java.lang.Thread") ?: return
         val handlerClass = loadClassAnywhere("java.lang.Thread\$UncaughtExceptionHandler") ?: return
         val m = tryGetMethod(threadClass, "setDefaultUncaughtExceptionHandler", handlerClass) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (!XpState.Flags.allowExit && chain.getArg(0) != null) {
@@ -671,7 +678,7 @@ internal class HookCrashBlocker(
     private fun hookThreadDispatchUncaught() {
         val threadClass = loadClassAnywhere("java.lang.Thread") ?: return
         val m = tryGetMethod(threadClass, "dispatchUncaughtException", Throwable::class.java) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -689,7 +696,7 @@ internal class HookCrashBlocker(
             ?: loadClassAnywhere("com.android.internal.os.RuntimeInit\$UncaughtHandler")
             ?: return
         val m = tryGetMethod(clazz, "uncaughtException", Thread::class.java, Throwable::class.java) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -707,7 +714,7 @@ internal class HookCrashBlocker(
         val handlerClass = loadClassAnywhere("android.os.Handler") ?: return
         val msgClass = loadClassAnywhere("android.os.Message") ?: return
         val m = tryGetMethod(handlerClass, "dispatchMessage", msgClass) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -725,7 +732,7 @@ internal class HookCrashBlocker(
     private fun hookLooperLoop() {
         val looperClass = loadClassAnywhere("android.os.Looper") ?: return
         val loopMethod = tryGetMethod(looperClass, "loop") ?: return
-        makeAccessible(loopMethod); deopt(loopMethod)
+        makeAccessible(loopMethod)
 
         hookMethod(loopMethod) { chain ->
             var restarts = 0
@@ -754,7 +761,7 @@ internal class HookCrashBlocker(
     private fun hookActivityThreadMain() {
         val clazz = loadClassAnywhere("android.app.ActivityThread") ?: return
         val m = tryGetMethod(clazz, "main", Array<String>::class.java) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             try {
@@ -771,7 +778,7 @@ internal class HookCrashBlocker(
         val clazz = loadClassAnywhere("android.app.ActivityThread\$H") ?: return
         val msgCls = loadClassAnywhere("android.os.Message") ?: return
         val m = tryGetMethod(clazz, "handleMessage", msgCls) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -787,7 +794,7 @@ internal class HookCrashBlocker(
     private fun hookDebugWaitForDebugger() {
         val clazz = loadClassAnywhere("android.os.Debug") ?: return
         val m = tryGetMethod(clazz, "waitForDebugger") ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -803,7 +810,7 @@ internal class HookCrashBlocker(
     private fun hookFinishAffinity() {
         val clazz = loadClassAnywhere("android.app.Activity") ?: return
         val m = tryGetMethod(clazz, "finishAffinity") ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -817,7 +824,7 @@ internal class HookCrashBlocker(
     private fun hookFinishAndRemoveTask() {
         val clazz = loadClassAnywhere("android.app.Activity") ?: return
         val m = tryGetMethod(clazz, "finishAndRemoveTask") ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -831,7 +838,7 @@ internal class HookCrashBlocker(
     private fun hookMoveTaskToBack() {
         val clazz = loadClassAnywhere("android.app.Activity") ?: return
         val m = tryGetMethod(clazz, "moveTaskToBack", java.lang.Boolean.TYPE) ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()
@@ -847,7 +854,7 @@ internal class HookCrashBlocker(
         val m2 = tryGetMethod(clazz, "moveTaskToBack", INT_TYPE, java.lang.Boolean.TYPE)
         val m1 = if (m2 == null) tryGetMethod(clazz, "moveTaskToBack", INT_TYPE) else null
         val m = m2 ?: m1 ?: return
-        makeAccessible(m); deopt(m)
+        makeAccessible(m)
 
         hookMethod(m) { chain ->
             if (XpState.Flags.allowExit) chain.proceed()

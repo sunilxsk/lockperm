@@ -79,6 +79,7 @@ internal class CrashCatcher(
             val setter = threadClass.getDeclaredMethod(
                 "setDefaultUncaughtExceptionHandler", handlerInterface
             )
+            if (!HookSupport.claimHook("CrashCatcher", setter)) return@runCatching
             module.hook(setter)
                 .setPriority(XposedInterface.PRIORITY_HIGHEST)
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
@@ -219,13 +220,37 @@ internal class WrappedHandler(
 ) : Thread.UncaughtExceptionHandler {
 
     override fun uncaughtException(t: Thread, e: Throwable) {
-        runCatching { onCrash(t, e) }
-        if (runCatching { shouldIntercept() }.getOrDefault(false)) return
-        runCatching { original?.uncaughtException(t, e) }
+        
+        
+        
+        
+        
+        
+        
+        val seen = inFlight.get()
+        if (!seen.add(e)) return
+        try {
+            runCatching { onCrash(t, e) }
+            if (runCatching { shouldIntercept() }.getOrDefault(false)) return
+            runCatching { original?.uncaughtException(t, e) }
+        } finally {
+            seen.remove(e)
+        }
     }
 
     @Synchronized
     fun updateOriginal(handler: Thread.UncaughtExceptionHandler?) {
+        
+        if (handler === this) return
         original = handler
+    }
+
+    private companion object {
+        
+        val inFlight: ThreadLocal<MutableSet<Throwable>> = ThreadLocal.withInitial {
+            java.util.Collections.newSetFromMap(
+                java.util.IdentityHashMap<Throwable, Boolean>()
+            )
+        }
     }
 }

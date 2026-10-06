@@ -25,7 +25,9 @@ internal class OverlayDefender(
 ) : HookSupport(module, prefs, classLoader) {
 
     fun install() {
-        if (snapshot().blockOverlay) hookOverlay()
+        
+        
+        if (snapshot().blockOverlay || OverlayTuner.active(snapshot())) hookOverlay()
         if (snapshot().blockWallpaper) hookWallpaper()
     }
 
@@ -51,14 +53,83 @@ internal class OverlayDefender(
                     hookAll(clazz, { m -> m.name == "addView" }) { chain ->
                         if (overlayBlocked() && isSystemWindow(chain)) {
                             logWarn("blocked system overlay window ($name)")
-                            null
-                        } else {
-                            chain.proceed()
+                            return@hookAll null
                         }
+                        val cfg = snapshot()
+                        val args = runCatching { chain.args }.getOrNull()
+                        val lp = args?.firstOrNull {
+                            it is android.view.WindowManager.LayoutParams
+                        } as? android.view.WindowManager.LayoutParams
+
+                        
+                        
+                        
+                        
+                        if (lp != null && OverlayTuner.active(cfg) && isSystemWindow(chain)) {
+                            runCatching { OverlayTuner.tune(lp, cfg) { logWarn(it) } }
+                        }
+                        val result = chain.proceed()
+
+                        
+                        
+                        if (lp != null && OverlayTuner.needsMeasure(lp, cfg)) {
+                            scheduleClamp(chain, args, lp, cfg, name)
+                        }
+                        result
+                    }
+                    
+                    hookAll(clazz, { m -> m.name == "updateViewLayout" }) { chain ->
+                        
+                        if (OverlayTuner.isAdjusting()) return@hookAll chain.proceed()
+                        val cfg = snapshot()
+                        if (!OverlayTuner.active(cfg)) return@hookAll chain.proceed()
+                        val args = runCatching { chain.args }.getOrNull()
+                        val lp = args?.firstOrNull {
+                            it is android.view.WindowManager.LayoutParams
+                        } as? android.view.WindowManager.LayoutParams
+                        if (lp != null && isSystemWindow(chain)) {
+                            runCatching { OverlayTuner.tune(lp, cfg) { logWarn(it) } }
+                        }
+                        val result = chain.proceed()
+                        if (lp != null && OverlayTuner.needsMeasure(lp, cfg)) {
+                            scheduleClamp(chain, args, lp, cfg, name)
+                        }
+                        result
                     }
                     logInfo("overlay hook installed: $name")
                 }
             }
+    }
+
+    
+
+
+
+    private fun scheduleClamp(
+        chain: io.github.libxposed.api.XposedInterface.Chain,
+        args: List<Any?>?,
+        lp: android.view.WindowManager.LayoutParams,
+        cfg: XpState.Snapshot,
+        name: String,
+    ) {
+        val view = args?.firstOrNull { it is android.view.View } as? android.view.View
+            ?: return
+        val wm = chain.getThisObject() as? android.view.WindowManager ?: return
+        runCatching {
+            view.post {
+                runCatching {
+                    val w = view.width
+                    val h = view.height
+                    if (w <= 0 || h <= 0) return@runCatching
+                    if (OverlayTuner.clampMeasured(lp, w, h, cfg) { logWarn(it) }) {
+                        OverlayTuner.withAdjustGuard {
+                            runCatching { wm.updateViewLayout(view, lp) }
+                                .onFailure { logWarn("updateViewLayout 失败: ${it.message}") }
+                        }
+                    }
+                }
+            }
+        }.onFailure { logWarn("scheduleClamp 失败($name): ${it.message}") }
     }
 
     

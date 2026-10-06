@@ -77,13 +77,14 @@ object XpConfig {
         const val TIME = 1 shl 2    
         const val FILE = 1 shl 3    
         const val STAT = 1 shl 4    
-        const val DIR = 1 shl 5     
+        
         const val EXEC = 1 shl 6    
         const val EXIT = 1 shl 7    
         const val NET = 1 shl 8     
         const val READ = 1 shl 9    
         const val MMAP = 1 shl 10   
         const val GPU = 1 shl 11    
+        const val SENSOR = 1 shl 12 
     }
 
     
@@ -94,10 +95,20 @@ object XpConfig {
 
 
 
+    
+    
+    
+    
+    
+    
+    
+    const val KEY_DEVICE_TEMPLATES = "device_templates"
+
     val GLOBAL_KEYS: Set<String> = setOf(
         KEY_NATIVE_HOOK,
         KEY_NATIVE_ANTI_DETECT,
         KEY_LOG_ENABLE,
+        KEY_DEVICE_TEMPLATES,
     )
 
     
@@ -154,6 +165,11 @@ object XpConfig {
     
     
     const val KEY_WIFI_FAKE_ENABLE = "wifi_fake_enable"
+    
+    const val KEY_BLOCK_WIFI_SAVED = "block_wifi_saved"
+
+    
+    const val KEY_BLOCK_WAKELOCK = "block_wakelock"
     const val KEY_WIFI_FAKE_SSID = "wifi_fake_ssid"
     const val KEY_WIFI_FAKE_BSSID = "wifi_fake_bssid"
     const val KEY_WIFI_FAKE_RSSI = "wifi_fake_rssi"
@@ -176,6 +192,13 @@ object XpConfig {
     
     const val KEY_ACC_STATUS_SPOOF = "acc_status_spoof"
     const val KEY_ACC_STATUS_VALUE = "acc_status_value"
+
+    
+    
+    const val KEY_ACC_FAKE_MODE = "acc_fake_mode"
+    const val ACC_MODE_DEFAULT = 0
+    const val ACC_MODE_FAKE_SUCCESS = 1
+    val ACC_MODE_OPTIONS = listOf("默认", "伪装成功")
 
     
     
@@ -224,16 +247,6 @@ object XpConfig {
     
     
     
-    
-    
-    
-    const val KEY_CUSTOM_PROPS = "custom_props"
-
-    
-    
-    
-    const val KEY_HIDE_PATHS = "hide_paths"
-
     const val KEY_FAKE_KERNEL = "fake_kernel"
     const val KEY_FAKE_ARCH = "fake_arch"
     const val KEY_FAKE_CPUINFO_HW = "fake_cpuinfo_hw"
@@ -259,11 +272,173 @@ object XpConfig {
     const val KEY_FAKE_CPU_PRESET = "fake_cpu_preset"      
     const val KEY_FAKE_CPU_CUSTOM = "fake_cpu_custom"      
     const val KEY_FAKE_CPU_CORES = "fake_cpu_cores"
+    
+
+
+
+    const val KEY_FAKE_CPU_MIN_FREQ = "fake_cpu_min_freq"
+    const val KEY_FAKE_CPU_MAX_FREQ = "fake_cpu_max_freq"
+    
+
+
+
+    const val KEY_FAKE_CPU_CUR_FREQ = "fake_cpu_cur_freq"
     const val KEY_FAKE_TEMP_ENABLE = "fake_temp_enable"
     const val KEY_FAKE_TEMP = "fake_temp"
     const val KEY_FAKE_BATTERY_ENABLE = "fake_battery_enable"
     const val KEY_FAKE_BATTERY = "fake_battery"
+    
+    const val KEY_FAKE_BATTERY_DRAIN = "fake_battery_drain"
+    const val KEY_FAKE_BATTERY_DRAIN_MIN = "fake_battery_drain_min"
+
+    
+    const val KEY_LOC_ENABLE = "loc_enable"
+    
+    const val KEY_LOC_MODE = "loc_mode"
+    const val KEY_LOC_LAT = "loc_lat"
+    const val KEY_LOC_LON = "loc_lon"
+    const val KEY_LOC_ALT = "loc_alt"
+    const val KEY_LOC_ACC = "loc_acc"
+    
+    const val KEY_LOC_FIELDS = "loc_fields"
+    
+    const val KEY_LOC_GPS = "loc_gps"
+    const val KEY_LOC_NET = "loc_net"
+    const val KEY_LOC_FUSED = "loc_fused"
+    const val KEY_LOC_TELEPHONY = "loc_telephony"
+    const val KEY_LOC_STORE = "loc_store"
+    const val KEY_LOC_CELL = "loc_cell"
+    
+    const val KEY_CELL_MCC = "cell_mcc"
+    const val KEY_CELL_MNC = "cell_mnc"
+    const val KEY_CELL_LAC = "cell_lac"
+    const val KEY_CELL_CID = "cell_cid"
+    const val KEY_CELL_PCI = "cell_pci"
+
+    
+    
+    const val KEY_WIN_SECURE_MODE = "win_secure_mode"
+    
+    const val KEY_WIN_FLAGS = "win_flags"
     const val KEY_OAID = "fake_oaid"
+
+    
+    
+    const val KEY_FAKE_DPI_ENABLE = "fake_dpi_enable"
+    const val KEY_FAKE_DPI = "fake_dpi"
+    
+    const val MIN_DPI = 120
+    const val MAX_DPI = 800
+    const val DEF_DPI = 420
+
+    const val KEY_FAKE_MEM_ENABLE = "fake_mem_enable"
+    const val KEY_FAKE_MEM_MB = "fake_mem_mb"
+    const val DEF_MEM_MB = 8192
+
+
+    
+    
+    
+    
+    
+    const val KEY_FAKE_MEM2_ENABLE = "fake_mem2_enable"
+    const val KEY_FAKE_MEM_TOTAL_MB = "fake_mem_total_mb"
+    const val KEY_FAKE_MEM_AVAIL_MB = "fake_mem_avail_mb"
+    const val KEY_FAKE_STOR_TOTAL_GB = "fake_stor_total_gb"
+    const val KEY_FAKE_STOR_AVAIL_GB = "fake_stor_avail_gb"
+    const val DEF_MEM_TOTAL_MB = 12288
+    const val DEF_MEM_AVAIL_MB = 6144
+    const val DEF_STOR_TOTAL_GB = 512
+    const val DEF_STOR_AVAIL_GB = 384
+
+    
+    const val KEY_FAKE_DISPLAY_ENABLE = "fake_display_enable"
+    const val KEY_FAKE_RES_W = "fake_res_w"
+    const val KEY_FAKE_RES_H = "fake_res_h"
+    
+    const val KEY_FAKE_REFRESH = "fake_refresh"
+    
+    const val KEY_FAKE_REFRESH_LIST = "fake_refresh_list"
+    const val DEF_RES_W = 1080
+    const val DEF_RES_H = 2400
+    const val DEF_REFRESH = 120
+    const val DEF_REFRESH_LIST = "60,120"
+
+    
+    const val KEY_FAKE_CAM_ENABLE = "fake_cam_enable"
+    const val KEY_FAKE_CAM_BACK_MP = "fake_cam_back_mp"
+    const val KEY_FAKE_CAM_FRONT_MP = "fake_cam_front_mp"
+    const val DEF_CAM_BACK_MP = 200
+    const val DEF_CAM_FRONT_MP = 50
+
+    
+    const val KEY_FAKE_NETP_ENABLE = "fake_netp_enable"
+    const val KEY_FAKE_IPV4 = "fake_ipv4"
+    const val KEY_FAKE_IPV6 = "fake_ipv6"
+    const val KEY_FAKE_DNS1 = "fake_dns1"
+    const val KEY_FAKE_DNS2 = "fake_dns2"
+    const val KEY_FAKE_GATEWAY = "fake_gateway"
+    
+    const val KEY_FAKE_WIFI_STD = "fake_wifi_std"
+    const val DEF_IPV4 = "192.168.1.105"
+    const val DEF_IPV6 = "2408:8207:78cc:5af0:1e6f:6ff:fe9a:1c3d"
+    const val DEF_DNS1 = "192.168.1.1"
+    const val DEF_DNS2 = "8.8.8.8"
+    const val DEF_GATEWAY = "192.168.1.1"
+    const val DEF_WIFI_STD = "6"
+
+    
+    const val KEY_FAKE_BATEX_ENABLE = "fake_batex_enable"
+    
+    const val KEY_FAKE_BAT_STATUS = "fake_bat_status"
+    
+    const val KEY_FAKE_BAT_CURRENT_MA = "fake_bat_current_ma"
+    
+    const val KEY_FAKE_BAT_VOLTAGE_MV = "fake_bat_voltage_mv"
+    
+    const val KEY_FAKE_BAT_DESIGN_MAH = "fake_bat_design_mah"
+    const val DEF_BAT_STATUS = "discharging"
+    const val DEF_BAT_CURRENT_MA = 1200
+    const val DEF_BAT_VOLTAGE_MV = 3900
+    const val DEF_BAT_DESIGN_MAH = 5000
+    val BAT_STATUSES: List<String> = listOf("charging", "discharging", "full", "not_charging")
+
+    
+    const val KEY_FAKE_SIM_ESIM = "fake_sim_esim"
+    const val KEY_FAKE_SIM_ESIM_ACTIVE = "fake_sim_esim_active"
+    const val KEY_FAKE_SIM_DATA = "fake_sim_data"
+    const val KEY_FAKE_SIM_ROAM_ENABLE = "fake_sim_roam_enable"
+    const val KEY_FAKE_SIM_ROAM = "fake_sim_roam"
+
+    
+    const val KEY_GMS_ENABLE = "gms_enable"
+    
+    const val KEY_GMS_INSTALLED = "gms_installed"
+    
+    const val KEY_GMS_AVAILABLE = "gms_available"
+    
+    const val KEY_GMS_ADID_ENABLE = "gms_adid_enable"
+    const val KEY_GMS_ADID = "gms_adid"
+    const val KEY_GMS_ADID_LIMIT = "gms_adid_limit"
+    const val KEY_GMS_VERSION = "gms_version"
+    const val KEY_GMS_VERSION_CODE = "gms_version_code"
+
+    
+    
+    const val KEY_HMS_ENABLE = "hms_enable"
+    
+    const val KEY_HMS_INSTALLED = "hms_installed"
+    
+    const val KEY_HMS_AVAILABLE = "hms_available"
+    const val KEY_HMS_ADID_ENABLE = "hms_adid_enable"
+    const val KEY_HMS_VERSION = "hms_version"
+    const val KEY_HMS_VERSION_CODE = "hms_version_code"
+
+    const val DEF_GMS_ADID = "38400000-8cf0-11bd-b23e-0242ac120002"
+    const val DEF_GMS_VERSION = "24.44.15"
+    const val DEF_GMS_VERSION_CODE = 244415000
+    const val DEF_HMS_VERSION = "6.13.0.302"
+    const val DEF_HMS_VERSION_CODE = 61300302
 
     const val DEF_KERNEL = "6.6.28-android15-8-g3f2a1b4c5d6-ab12345678"
     const val DEF_ARCH = "aarch64"
@@ -284,45 +459,251 @@ object XpConfig {
     const val CPU_MODE_PRESET = "preset"
     const val CPU_MODE_CUSTOM = "custom"
 
+    
+
+
+
+
+
+
+
+    data class CpuCluster(
+        val cores: Int,
+        val minKhz: Int,
+        val maxKhz: Int,
+        
+        val part: String = "0xd05",
+        val variant: Int = 1,
+        val bogoMips: String = "38.40",
+    ) {
+        fun coreCount(): Int = cores.coerceIn(1, 32)
+    }
+
     data class CpuPreset(
         val soc: String,        
         val board: String,      
         val cpuinfo: String,    
+        
+        val clusters: List<CpuCluster> = emptyList(),
     )
 
     val CPU_PRESETS: List<CpuPreset> by lazy { buildCpuPresets() }
 
-    fun cpuPresetNames(): List<String> =
-        listOf("骁龙 8 Gen 1", "天玑 9000", "Exynos 2200", "麒麟 9000", "骁龙 865")
+    fun cpuPresetNames(): List<String> = CPU_PRESET_SPECS.map { it.name }
 
-    private fun buildCpuPresets(): List<CpuPreset> = listOf(
-        CpuPreset("SM8450", "sm8450", cpuinfoOf("SM8450", "0x41", "0xd4b", 8, "Qualcomm")),
-        CpuPreset("MT6983", "mt6983", cpuinfoOf("MT6983", "0x41", "0xd4c", 8, "MediaTek")),
-        CpuPreset("S5E9925", "s5e9925", cpuinfoOf("S5E9925", "0x53", "0x001", 8, "Samsung")),
-        CpuPreset("Kirin 9000", "hi3660", cpuinfoOf("Kirin 9000", "0x48", "0xd02", 8, "HiSilicon")),
-        CpuPreset("SM8250", "sm8250", cpuinfoOf("SM8250", "0x41", "0xd44", 8, "Qualcomm")),
+    
+    fun cpuClusters(soc: String): List<CpuCluster> {
+        val s = soc.trim()
+        if (s.isEmpty()) return CPU_CLUSTER_DEF
+        CPU_PRESET_SPECS.firstOrNull { it.soc.equals(s, true) }?.let { return it.clusters }
+        CPU_PRESETS.firstOrNull { it.soc.equals(s, true) && it.clusters.isNotEmpty() }
+            ?.let { return it.clusters }
+        FREQ_BY_SOC[s.uppercase()]?.let { return it }
+        
+        FREQ_BY_SOC.entries.firstOrNull { s.uppercase().startsWith(it.key) }?.let { return it.value }
+        return CPU_CLUSTER_DEF
+    }
+
+    
+    fun cpuCoreCount(soc: String): Int =
+        cpuClusters(soc).sumOf { it.coreCount() }.coerceIn(1, 32)
+
+    
+    
+    private data class CpuSpec(
+        val name: String,
+        val soc: String,
+        val board: String,
+        val implementer: String,
+        val clusters: List<CpuCluster>,
+    )
+
+    private val CPU_PRESET_SPECS: List<CpuSpec> by lazy { buildCpuSpecs() }
+
+    private fun buildCpuSpecs(): List<CpuSpec> = listOf(
+        
+        CpuSpec(
+            "骁龙 8 Elite Gen 5", "SM8850", "sm8850", "0x51",
+            listOf(
+                CpuCluster(2, 403_200, 4_608_000, "0x001", 3),
+                CpuCluster(6, 300_000, 3_620_000, "0x002", 2),
+            ),
+        ),
+        CpuSpec(
+            "骁龙 8 Elite", "SM8750", "sm8750", "0x51",
+            listOf(
+                CpuCluster(2, 403_200, 4_470_000, "0x001", 3),
+                CpuCluster(6, 300_000, 3_530_000, "0x002", 2),
+            ),
+        ),
+        CpuSpec(
+            "天玑 9500", "MT6993", "mt6993", "0x41",
+            listOf(
+                CpuCluster(1, 300_000, 4_210_000, "0xd84", 3),
+                CpuCluster(3, 300_000, 3_500_000, "0xd83", 2),
+                CpuCluster(4, 200_000, 2_700_000, "0xd82", 1),
+            ),
+        ),
+        CpuSpec(
+            "天玑 9400", "MT6991", "mt6991", "0x41",
+            listOf(
+                CpuCluster(1, 300_000, 3_620_000, "0xd84", 3),
+                CpuCluster(3, 300_000, 3_300_000, "0xd83", 2),
+                CpuCluster(4, 200_000, 2_500_000, "0xd82", 1),
+            ),
+        ),
+        CpuSpec(
+            "Exynos 2600", "S5E9965", "s5e9965", "0x53",
+            listOf(
+                CpuCluster(2, 300_000, 3_800_000, "0x001", 3),
+                CpuCluster(4, 300_000, 3_000_000, "0x002", 2),
+                CpuCluster(4, 200_000, 2_200_000, "0x003", 1),
+            ),
+        ),
+        CpuSpec(
+            "麒麟 9020", "Kirin 9020", "hi3680", "0x48",
+            listOf(
+                CpuCluster(1, 400_000, 2_500_000, "0xd02", 3),
+                CpuCluster(3, 400_000, 2_150_000, "0xd01", 2),
+                CpuCluster(4, 300_000, 1_600_000, "0xd00", 1),
+            ),
+        ),
+        
+        CpuSpec(
+            "骁龙 8 Gen 3", "SM8650", "kalama", "0x51",
+            listOf(
+                CpuCluster(1, 403_200, 3_300_000, "0x001", 3),
+                CpuCluster(5, 403_200, 3_150_000, "0x002", 2),
+                CpuCluster(2, 300_000, 2_270_000, "0x003", 1),
+            ),
+        ),
+        CpuSpec(
+            "骁龙 8 Gen 1", "SM8450", "sm8450", "0x41",
+            listOf(
+                CpuCluster(1, 691_200, 2_995_200, "0xd4b", 3),
+                CpuCluster(3, 691_200, 2_496_000, "0xd4a", 2),
+                CpuCluster(4, 691_200, 1_766_400, "0xd05", 1),
+            ),
+        ),
+        CpuSpec(
+            "天玑 9000", "MT6983", "mt6983", "0x41",
+            listOf(
+                CpuCluster(1, 500_000, 3_050_000, "0xd4b", 3),
+                CpuCluster(3, 500_000, 2_850_000, "0xd4a", 2),
+                CpuCluster(4, 500_000, 2_000_000, "0xd05", 1),
+            ),
+        ),
+        CpuSpec(
+            "Exynos 2200", "S5E9925", "s5e9925", "0x53",
+            listOf(
+                CpuCluster(1, 500_000, 2_800_000, "0x001", 3),
+                CpuCluster(3, 500_000, 2_500_000, "0x002", 2),
+                CpuCluster(4, 500_000, 1_900_000, "0x003", 1),
+            ),
+        ),
+        CpuSpec(
+            "麒麟 9000", "Kirin 9000", "hi3660", "0x48",
+            listOf(
+                CpuCluster(1, 500_000, 3_130_000, "0xd02", 3),
+                CpuCluster(3, 500_000, 2_540_000, "0xd01", 2),
+                CpuCluster(4, 500_000, 2_050_000, "0xd00", 1),
+            ),
+        ),
+        CpuSpec(
+            "骁龙 865", "SM8250", "sm8250", "0x41",
+            listOf(
+                CpuCluster(1, 691_200, 2_841_600, "0xd0c", 3),
+                CpuCluster(3, 691_200, 2_419_200, "0xd0d", 2),
+                CpuCluster(4, 691_200, 1_766_400, "0xd05", 1),
+            ),
+        ),
     )
 
     
-    fun cpuinfoOf(soc: String, implementer: String, part: String, cores: Int, vendor: String): String {
+    private val FREQ_BY_SOC: Map<String, List<CpuCluster>> by lazy {
+        val m = LinkedHashMap<String, List<CpuCluster>>()
+        CPU_PRESET_SPECS.forEach { m[it.soc.uppercase()] = it.clusters }
+        
+        m["MT6895"] = m["MT6983"] ?: CPU_CLUSTER_DEF      
+        m["SM8635"] = listOf(
+            CpuCluster(1, 403_200, 3_200_000, "0x001", 3),
+            CpuCluster(4, 403_200, 3_010_000, "0x002", 2),
+            CpuCluster(3, 300_000, 2_270_000, "0x003", 1),
+        )
+        m["SM8550"] = listOf(
+            CpuCluster(1, 403_200, 3_200_000, "0x001", 3),
+            CpuCluster(4, 403_200, 2_800_000, "0x002", 2),
+            CpuCluster(3, 300_000, 2_000_000, "0x003", 1),
+        )
+        m["SM8475"] = listOf(
+            CpuCluster(1, 691_200, 3_200_000, "0xd4b", 3),
+            CpuCluster(3, 691_200, 2_750_000, "0xd4a", 2),
+            CpuCluster(4, 691_200, 2_000_000, "0xd05", 1),
+        )
+        m["TENSOR G3"] = listOf(
+            CpuCluster(1, 500_000, 2_910_000, "0x001", 3),
+            CpuCluster(4, 500_000, 2_350_000, "0x002", 2),
+            CpuCluster(4, 500_000, 1_700_000, "0x003", 1),
+        )
+        m["TENSOR G4"] = m["TENSOR G3"] ?: CPU_CLUSTER_DEF
+        m["TENSOR G5"] = listOf(
+            CpuCluster(1, 500_000, 3_050_000, "0x001", 3),
+            CpuCluster(5, 500_000, 2_600_000, "0x002", 2),
+            CpuCluster(2, 500_000, 1_950_000, "0x003", 1),
+        )
+        m["KIRIN 9000S"] = m["KIRIN 9000"] ?: CPU_CLUSTER_DEF
+        m["MT6989"] = listOf(
+            CpuCluster(1, 300_000, 3_250_000, "0xd84", 3),
+            CpuCluster(3, 300_000, 3_000_000, "0xd83", 2),
+            CpuCluster(4, 200_000, 2_000_000, "0xd82", 1),
+        )
+        m
+    }
+
+    private val CPU_CLUSTER_DEF: List<CpuCluster> = listOf(
+        CpuCluster(4, 500_000, 2_000_000, "0xd05", 1),
+        CpuCluster(4, 650_000, 2_500_000, "0xd4a", 2),
+    )
+
+    private fun buildCpuPresets(): List<CpuPreset> = CPU_PRESET_SPECS.map { s ->
+        CpuPreset(
+            soc = s.soc,
+            board = s.board,
+            cpuinfo = cpuinfoOf(s.soc, s.implementer, s.clusters),
+            clusters = s.clusters,
+        )
+    }
+
+    
+
+
+
+
+    fun cpuinfoOf(soc: String, implementer: String, clusters: List<CpuCluster>): String {
         val sb = StringBuilder()
         val feats = "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp " +
                 "cpuid asimdrdm lrcpc dcpop asimddp"
-        
-        for (i in 0 until cores) {
-            val big = i >= cores - 2
-            sb.append("processor\t: $i\n")
-            sb.append("BogoMIPS\t: 38.40\n")
-            sb.append("Features\t: $feats\n")
-            sb.append("CPU implementer\t: $implementer\n")
-            sb.append("CPU architecture: 8\n")
-            sb.append("CPU variant\t: ${if (big) 0x2 else 0x1}\n")
-            sb.append("CPU part\t: ${if (big) part else "0xd05"}\n")
-            sb.append("CPU revision\t: ${i % 4}\n\n")
+        var idx = 0
+        clusters.forEach { c ->
+            repeat(c.coreCount()) {
+                sb.append("processor\t: $idx\n")
+                sb.append("BogoMIPS\t: ${c.bogoMips}\n")
+                sb.append("Features\t: $feats\n")
+                sb.append("CPU implementer\t: $implementer\n")
+                sb.append("CPU architecture: 8\n")
+                sb.append("CPU variant\t: 0x${c.variant}\n")
+                sb.append("CPU part\t: ${c.part}\n")
+                sb.append("CPU revision\t: ${idx % 4}\n\n")
+                idx++
+            }
         }
         sb.append("Hardware\t: $soc\n")
         return sb.toString()
     }
+
+    
+    fun parseFreqList(raw: String): List<Int> =
+        raw.split(",", "，", " ", "\n").mapNotNull { it.trim().toIntOrNull() }.filter { it > 0 }
 
     
     fun vkApiVersion(text: String): Int {
@@ -356,17 +737,37 @@ object XpConfig {
         val direct = GPU_BY_SOC[s]
         if (direct != null) return direct
         return when {
-            s.startsWith("SM8") -> "Adreno (TM) 750"
+            
+            s.startsWith("SM88") -> "Adreno (TM) 840"
+            s.startsWith("SM87") -> "Adreno (TM) 830"
+            s.startsWith("SM86") -> "Adreno (TM) 750"
+            s.startsWith("SM85") -> "Adreno (TM) 740"
+            s.startsWith("SM84") -> "Adreno (TM) 730"
+            s.startsWith("SM83") -> "Adreno (TM) 660"
             s.startsWith("SM7") -> "Adreno (TM) 660"
             s.startsWith("SM6") -> "Adreno (TM) 640"
+            s.contains("TENSOR G5") -> "PowerVR D-Series DXT-48-1536"
             s.contains("TENSOR") -> "Mali-G715-Immortalis MC7"
-            s.startsWith("MT7") -> "Mali-G720 Immortalis MP12"
-            s.contains("KIRIN") -> "Maleoon 910"
-            else -> "Adreno (TM) 750"
+            s.startsWith("MT699") -> "Mali-G1-Ultra MC12"
+            s.startsWith("MT698") -> "Mali-G720 Immortalis MP12"
+            s.startsWith("MT689") -> "Mali-G610 MC6"
+            s.contains("KIRIN") -> "Maleoon 920"
+            s.startsWith("S5E99") -> "Xclipse 960"
+            s.startsWith("S5E98") -> "Xclipse 950"
+            else -> "Adreno (TM) 840"
         }
     }
 
     private val GPU_BY_SOC: Map<String, String> = mapOf(
+        
+        "SM8850" to "Adreno (TM) 840",
+        "SM8750" to "Adreno (TM) 830",
+        "MT6993" to "Mali-G1-Ultra MC12",
+        "MT6991" to "Immortalis-G925 MC12",
+        "S5E9965" to "Xclipse 960",
+        "TENSOR G5" to "PowerVR D-Series DXT-48-1536",
+        "KIRIN 9020" to "Maleoon 920",
+        
         "SM8650" to "Adreno (TM) 750",
         "SM8635" to "Adreno (TM) 735",
         "SM8550" to "Adreno (TM) 740",
@@ -378,6 +779,7 @@ object XpConfig {
         "MT6989" to "Mali-G720 Immortalis MP12",
         "MT6895" to "Mali-G610 MC6",
         "KIRIN 9000S" to "Maleoon 910",
+        "KIRIN 9000" to "Maleoon 910",
     )
 
     fun socVendor(soc: String): String {
@@ -387,7 +789,8 @@ object XpConfig {
             s.startsWith("MT") || s.contains("DIMENSITY") -> "MediaTek"
             s.contains("TENSOR") -> "Google"
             s.contains("KIRIN") -> "HiSilicon"
-            s.contains("EXYNOS") -> "Samsung"
+            
+            s.startsWith("S5E") || s.contains("EXYNOS") -> "Samsung"
             else -> "Qualcomm"
         }
     }
@@ -411,6 +814,30 @@ object XpConfig {
     const val UI_THEME_COLOR = "theme_color"    
     const val UI_APP_ICON = "app_icon"          
     const val UI_SCALE = "ui_scale"             
+    const val UI_TEMPLATE_COLUMNS = "tpl_cols"  
+    const val DEF_TEMPLATE_COLUMNS = 1
+    const val MAX_TEMPLATE_COLUMNS = 3
+    const val UI_AUTO_UPDATE = "auto_update"    
+
+    
+
+
+
+
+
+
+
+    const val UI_LSPATCH_ACTIVATE = "lspatch_activate"
+
+    
+    const val UI_LSPATCH_SCOPE_NOTICED = "lspatch_scope_noticed"
+    
+    const val UI_HIDE_LAUNCHER = "ui_hide_launcher"
+    
+    const val UI_PREDICTIVE_BACK = "ui_predictive_back"
+
+    const val LSPATCH_SCOPE_HINT =
+        "将此应用修补后，作用域（scope）是通过在 LSPatch 来设置的；"
 
     const val THEME_DEFAULT = 0
     const val THEME_DYNAMIC = 1
@@ -522,6 +949,7 @@ object XpConfig {
         TextFieldSpec(KEY_FAKE_PLATFORM, "ro.board.platform", "留空=跟随 Hardware"),
         TextFieldSpec(KEY_FAKE_TEMP, "设备温度（摄氏度）", "0~120"),
         TextFieldSpec(KEY_FAKE_BATTERY, "电量百分比", "0~100"),
+        TextFieldSpec(KEY_FAKE_MEM_MB, "运行内存（MB）", "如 8192"),
     )
 
     val EXTRA_FIELDS_ID: List<TextFieldSpec> = listOf(
@@ -617,6 +1045,13 @@ object XpConfig {
     const val KEY_BLOCK_JUMP_WHITELIST = "block_jump_whitelist"
 
     
+    const val KEY_BLOCK_BG_LAUNCH = "block_bg_launch"
+    
+    const val KEY_BLOCK_BG_LAUNCH_PENDING = "block_bg_launch_pending"
+    
+    const val KEY_BLOCK_BG_LAUNCH_STRICT = "block_bg_launch_strict"
+
+    
     const val KEY_BLOCK_CAMERA_ENABLE = "block_camera_enable"
     const val KEY_BLOCK_MIC_ENABLE = "block_mic_enable"
 
@@ -646,6 +1081,85 @@ object XpConfig {
     
     const val KEY_BLOCK_TORCH = "block_torch"
     const val KEY_BLOCK_VIBRATE = "block_vibrate"
+
+    
+    
+    
+    
+
+    
+    const val KEY_BLOCK_HIDE_RECENTS = "block_hide_recents"
+
+    
+    const val KEY_OVERLAY_UNTouchABLE = "overlay_untouchable"
+    
+    const val KEY_OVERLAY_TRANSPARENT = "overlay_transparent"
+    
+    const val KEY_OVERLAY_MAX_PERCENT = "overlay_max_percent"
+
+    
+    const val KEY_BLOCK_SCREEN_OFF = "block_screen_off"
+    
+    const val KEY_SCREEN_OFF_WAKELOCK = "screen_off_wakelock"
+    
+    const val KEY_SCREEN_OFF_REFLECT = "screen_off_reflect"
+
+    
+    const val KEY_BLOCK_NOTIFY_HIDE = "block_notify_hide"
+
+    
+    const val KEY_BLOCK_PROVIDER = "block_provider"
+
+    
+    const val KEY_BLOCK_FOREGROUND_SERVICE = "block_fg_service"
+
+    
+    const val KEY_DA_BLOCK_REQUEST = "da_block_request"
+
+    
+    
+    
+
+
+
+    const val KEY_EXIT_COUNTDOWN = "exit_countdown"
+    
+    const val KEY_COND_AT_TIME = "cond_at_time"
+    const val KEY_COND_AT_TIME_HH = "cond_at_time_hh"
+    const val KEY_COND_AT_TIME_MM = "cond_at_time_mm"
+    
+    const val KEY_COND_COUNTDOWN = "cond_countdown"
+    const val KEY_COND_COUNTDOWN_MIN = "cond_countdown_min"
+    
+    const val KEY_COND_MEM = "cond_mem"
+    const val KEY_COND_MEM_MB = "cond_mem_mb"
+    
+    const val KEY_COND_CPU = "cond_cpu"
+    const val KEY_COND_CPU_PCT = "cond_cpu_pct"
+    
+    const val KEY_COND_DISK = "cond_disk"
+    const val KEY_COND_DISK_MB = "cond_disk_mb"
+    
+    const val KEY_COND_NET = "cond_net"
+    const val KEY_COND_NET_MODE = "cond_net_mode"
+    
+    const val KEY_COND_BATT = "cond_batt"
+    const val KEY_COND_BATT_MODE = "cond_batt_mode"
+    const val KEY_COND_BATT_PCT = "cond_batt_pct"
+    
+    const val KEY_COND_FILE = "cond_file"
+    const val KEY_COND_FILE_PATHS = "cond_file_paths"
+    
+    const val KEY_COND_FILE_EVENT = "cond_file_event"
+    
+    const val KEY_COND_IDLE = "cond_idle"
+    const val KEY_COND_IDLE_MIN = "cond_idle_min"
+
+    const val KEY_BLOCK_KEY_CONSUME = "block_key_consume"
+    const val KEY_BLOCK_KEY_PASS_BACK = "block_key_pass_back"
+
+    
+    const val KEY_SCREEN_CAPTURE_FIT = "screen_capture_fit"
 
     
     const val KEY_FILE_GUARD_ENABLE = "file_guard_enable"
@@ -756,7 +1270,43 @@ object XpConfig {
 
     
     const val KEY_DA_ENABLE = "da_enable"
+
     
+    
+    const val KEY_DA_FAKE_MODE = "da_fake_mode"
+    const val DA_MODE_DEFAULT = 0
+    const val DA_MODE_FAKE_SUCCESS = 1
+    val DA_MODE_OPTIONS = listOf("默认", "伪装成功")
+
+    
+
+
+
+
+
+
+
+    const val KEY_DA_SCOPE = "da_scope"
+    const val DA_SCOPE_HOOK_ONLY = 0
+    const val DA_SCOPE_CLOSE_AND_HOOK = 1
+    const val DA_SCOPE_CLOSE_ONLY = 2
+    val DA_SCOPE_OPTIONS: List<String> = listOf(
+        "只运行钩子",
+        "关闭服务 + 运行钩子",
+        "只关闭服务",
+    )
+
+    
+
+
+
+
+
+    const val KEY_DA_CLOSE_MODE = "da_close_mode"
+    const val DA_CLOSE_CONTINUOUS = 0
+    const val DA_CLOSE_BEFORE_EXIT = 1
+    val DA_CLOSE_MODE_OPTIONS: List<String> = listOf("持续关闭", "退出前关闭一次")
+
     const val KEY_DA_MASTER = "da_master"
     const val KEY_DA_LOCK = "da_lock"                 
     const val KEY_DA_PASSWORD = "da_password"         
@@ -768,45 +1318,57 @@ object XpConfig {
     const val KEY_DA_ENCRYPT = "da_encrypt"           
 
     
+    
+
+
+
+
+
+
+
+
+
     val DA_ITEMS: List<Triple<String, String, String>> = listOf(
         Triple(
             KEY_DA_LOCK,
-            "强制锁屏相关",
-            "禁止定时或立刻锁定屏幕：lockNow / setMaximumTimeToLock",
+            "强制锁屏相关（Device Owner+Device Admin）",
+            "禁止定时或立刻锁定屏幕：lockNow / setMaximumTimeToLock / setKeyguardDisabledFeatures",
         ),
         Triple(
             KEY_DA_PASSWORD,
-            "密码相关",
+            "密码相关（Device Owner+Device Admin）",
             "禁止强制密码长度 / 复杂度 / 超时 / 历史，禁止改锁屏密码、记录失败次数与密码到期回调",
         ),
         Triple(
             KEY_DA_WIPE,
-            "恢复出厂设置",
-            "禁止擦除手机全部数据：wipeData，以及策略不满足时自动锁定 / 擦除",
+            "恢复出厂设置（Device Owner+Device Admin）",
+            "禁止擦除手机全部数据：wipeData / wipeDevice，以及策略不满足时自动锁定 / 擦除",
         ),
         Triple(
             KEY_DA_CAMERA,
-            "禁用相机",
+            "禁用相机（Device Owner+Device Admin）",
             "禁止通过策略关闭拍照：setCameraDisabled",
         ),
         Triple(
             KEY_DA_APPMGMT,
-            "应用管理",
-            "禁止静默安装 / 卸载 / 更新应用、清除应用数据、设置应用黑白名单",
+            "应用管理（Device Owner）",
+            "禁止静默安装 / 卸载 / 更新应用、清除应用数据、设置应用黑白名单。" +
+                "普通 Device Admin 通常没有这些能力，故只归 Device Owner",
         ),
         Triple(
             KEY_DA_SYSTEM,
-            "系统控制",
-            "禁止配置全局 Wi-Fi / VPN、Kiosk 展台模式、禁用 USB / 蓝牙 / NFC、录屏与用户限制",
+            "系统控制（Device Owner）",
+            "禁止配置全局 Wi-Fi / VPN、Kiosk 展台模式、禁用 USB / 蓝牙 / NFC、录屏与用户限制。" +
+                "Kiosk 与全局设置为 Device Owner 专属",
         ),
         Triple(
             KEY_DA_PERMISSION,
-            "权限管控",
+            "权限管控（Device Owner）",
             "禁止自动授予或拒绝其它应用的运行时权限：setPermissionPolicy / setPermissionGrantState",
         ),
         Triple(
             KEY_DA_ENCRYPT,
-            "存储加密",
+            "存储加密（Device Owner+Device Admin）",
             "禁止请求存储加密：setStorageEncryption",
         ),
     )
@@ -966,6 +1528,8 @@ object XpConfig {
         KEY_HIDE_ACCOUNTS to false,
         
         KEY_WIFI_FAKE_ENABLE to false,
+        KEY_BLOCK_WIFI_SAVED to false,
+        KEY_BLOCK_WAKELOCK to false,
         KEY_WIFI_FAKE_SSID to "",
         KEY_WIFI_FAKE_BSSID to "",
         KEY_WIFI_FAKE_RSSI to -55,
@@ -982,6 +1546,7 @@ object XpConfig {
         
         KEY_ACC_STATUS_SPOOF to true,
         KEY_ACC_STATUS_VALUE to false,
+        KEY_ACC_FAKE_MODE to ACC_MODE_DEFAULT,
         
         KEY_VPN_HIDE_ENABLE to false,
         KEY_VPN_HIDE_IFACE to true,
@@ -1038,13 +1603,83 @@ object XpConfig {
         KEY_FAKE_CPU_PRESET to 0,
         KEY_FAKE_CPU_CUSTOM to "",
         KEY_FAKE_CPU_CORES to 8,
+        KEY_FAKE_CPU_MIN_FREQ to "",
+        KEY_FAKE_CPU_MAX_FREQ to "",
+        KEY_FAKE_CPU_CUR_FREQ to "",
         KEY_FAKE_TEMP_ENABLE to false,
         KEY_FAKE_TEMP to DEF_TEMP,
         KEY_FAKE_BATTERY_ENABLE to false,
         KEY_FAKE_BATTERY to DEF_BATTERY,
+        KEY_FAKE_BATTERY_DRAIN to false,
+        KEY_FAKE_BATTERY_DRAIN_MIN to 5,
+        KEY_LOC_ENABLE to false,
+        KEY_LOC_FIELDS to true,
+        KEY_LOC_MODE to 0,
+        KEY_LOC_LAT to "",
+        KEY_LOC_LON to "",
+        KEY_LOC_ALT to "",
+        KEY_LOC_ACC to "",
+        KEY_LOC_GPS to true,
+        KEY_LOC_NET to true,
+        KEY_LOC_FUSED to true,
+        KEY_LOC_TELEPHONY to true,
+        KEY_LOC_STORE to false,
+        KEY_LOC_CELL to true,
+        KEY_CELL_MCC to "",
+        KEY_CELL_MNC to "",
+        KEY_CELL_LAC to "",
+        KEY_CELL_CID to "",
+        KEY_CELL_PCI to "",
+        KEY_WIN_SECURE_MODE to 0,
+        KEY_FAKE_DPI_ENABLE to false,
+        KEY_FAKE_DPI to DEF_DPI,
+        KEY_FAKE_MEM_ENABLE to false,
+        KEY_FAKE_MEM_MB to DEF_MEM_MB,
+        KEY_FAKE_MEM2_ENABLE to false,
+        KEY_FAKE_MEM_TOTAL_MB to DEF_MEM_TOTAL_MB,
+        KEY_FAKE_MEM_AVAIL_MB to DEF_MEM_AVAIL_MB,
+        KEY_FAKE_STOR_TOTAL_GB to DEF_STOR_TOTAL_GB,
+        KEY_FAKE_STOR_AVAIL_GB to DEF_STOR_AVAIL_GB,
+        KEY_FAKE_DISPLAY_ENABLE to false,
+        KEY_FAKE_RES_W to DEF_RES_W,
+        KEY_FAKE_RES_H to DEF_RES_H,
+        KEY_FAKE_REFRESH to DEF_REFRESH,
+        KEY_FAKE_REFRESH_LIST to DEF_REFRESH_LIST,
+        KEY_FAKE_CAM_ENABLE to false,
+        KEY_FAKE_CAM_BACK_MP to DEF_CAM_BACK_MP,
+        KEY_FAKE_CAM_FRONT_MP to DEF_CAM_FRONT_MP,
+        KEY_FAKE_NETP_ENABLE to false,
+        KEY_FAKE_IPV4 to "",
+        KEY_FAKE_IPV6 to "",
+        KEY_FAKE_DNS1 to "",
+        KEY_FAKE_DNS2 to "",
+        KEY_FAKE_GATEWAY to "",
+        KEY_FAKE_WIFI_STD to DEF_WIFI_STD,
+        KEY_FAKE_BATEX_ENABLE to false,
+        KEY_FAKE_BAT_STATUS to DEF_BAT_STATUS,
+        KEY_FAKE_BAT_CURRENT_MA to DEF_BAT_CURRENT_MA,
+        KEY_FAKE_BAT_VOLTAGE_MV to DEF_BAT_VOLTAGE_MV,
+        KEY_FAKE_BAT_DESIGN_MAH to DEF_BAT_DESIGN_MAH,
+        KEY_FAKE_SIM_ESIM to false,
+        KEY_FAKE_SIM_ESIM_ACTIVE to false,
+        KEY_FAKE_SIM_DATA to false,
+        KEY_FAKE_SIM_ROAM_ENABLE to false,
+        KEY_FAKE_SIM_ROAM to false,
         KEY_OAID to "",
-        KEY_CUSTOM_PROPS to "",
-        KEY_HIDE_PATHS to "",
+        KEY_GMS_ENABLE to false,
+        KEY_GMS_INSTALLED to true,
+        KEY_GMS_AVAILABLE to true,
+        KEY_GMS_ADID_ENABLE to true,
+        KEY_GMS_ADID to "",
+        KEY_GMS_ADID_LIMIT to false,
+        KEY_GMS_VERSION to DEF_GMS_VERSION,
+        KEY_GMS_VERSION_CODE to DEF_GMS_VERSION_CODE,
+        KEY_HMS_ENABLE to false,
+        KEY_HMS_INSTALLED to true,
+        KEY_HMS_AVAILABLE to true,
+        KEY_HMS_ADID_ENABLE to true,
+        KEY_HMS_VERSION to DEF_HMS_VERSION,
+        KEY_HMS_VERSION_CODE to DEF_HMS_VERSION_CODE,
         KEY_NATIVE_HOOK to DEF_NATIVE_HOOK,
         KEY_NATIVE_BLOCK_EXIT to DEF_NATIVE_BLOCK_EXIT,
         KEY_NATIVE_APP_MODE to NATIVE_APP_DEFAULT,
@@ -1065,7 +1700,7 @@ object XpConfig {
         KEY_EXIT_PARALLEL to false,
         KEY_ACC_ENABLE to false,
         KEY_ACC_MODE to 0,
-        KEY_ACC_SCOPE to 1,
+        KEY_ACC_SCOPE to ACC_SCOPE_CLOSE_AND_HOOK,
         KEY_ACC_CAP_SCREEN to true,
         KEY_ACC_CAP_NOTIFY to true,
         KEY_ACC_CAP_WINDOW to true,
@@ -1073,6 +1708,39 @@ object XpConfig {
         KEY_ACC_CAP_ACTION to true,
         KEY_ACC_CAP_OVERLAY to true,
         KEY_ACC_CAP_CONTROL to true,
+        KEY_BLOCK_HIDE_RECENTS to false,
+        KEY_OVERLAY_UNTouchABLE to false,
+        KEY_OVERLAY_TRANSPARENT to false,
+        KEY_OVERLAY_MAX_PERCENT to 0,
+        KEY_BLOCK_SCREEN_OFF to false,
+        KEY_SCREEN_OFF_WAKELOCK to false,
+        KEY_SCREEN_OFF_REFLECT to false,
+        KEY_BLOCK_NOTIFY_HIDE to false,
+        KEY_BLOCK_PROVIDER to false,
+        KEY_BLOCK_FOREGROUND_SERVICE to false,
+        KEY_DA_BLOCK_REQUEST to false,
+        KEY_EXIT_COUNTDOWN to true,
+        KEY_COND_AT_TIME to false,
+        KEY_COND_AT_TIME_HH to 18,
+        KEY_COND_AT_TIME_MM to 0,
+        KEY_COND_COUNTDOWN to false,
+        KEY_COND_COUNTDOWN_MIN to 30,
+        KEY_COND_MEM to false,
+        KEY_COND_MEM_MB to 1024,
+        KEY_COND_CPU to false,
+        KEY_COND_CPU_PCT to 80,
+        KEY_COND_DISK to false,
+        KEY_COND_DISK_MB to 500,
+        KEY_COND_NET to false,
+        KEY_COND_NET_MODE to 0,
+        KEY_COND_BATT to false,
+        KEY_COND_BATT_MODE to 0,
+        KEY_COND_BATT_PCT to 10,
+        KEY_COND_FILE to false,
+        KEY_COND_FILE_PATHS to "",
+        KEY_COND_FILE_EVENT to 0,
+        KEY_COND_IDLE to false,
+        KEY_COND_IDLE_MIN to 10,
         KEY_BLOCK_OVERLAY to false,
         KEY_BLOCK_WALLPAPER to false,
         KEY_BLOCK_EXEC to false,
@@ -1113,6 +1781,9 @@ object XpConfig {
         KEY_BLOCK_SENSOR to false,
         KEY_BLOCK_JUMP_ENABLE to false,
         KEY_BLOCK_JUMP_WHITELIST to "",
+        KEY_BLOCK_BG_LAUNCH to false,
+        KEY_BLOCK_BG_LAUNCH_PENDING to true,
+        KEY_BLOCK_BG_LAUNCH_STRICT to true,
         KEY_BLOCK_CAMERA_ENABLE to false,
         KEY_BLOCK_MIC_ENABLE to false,
         KEY_BLOCK_INSTALL_ENABLE to false,
@@ -1126,6 +1797,9 @@ object XpConfig {
         KEY_SCREEN_CAPTURE_GRANT_OK to false,
         KEY_BLOCK_TORCH to false,
         KEY_BLOCK_VIBRATE to false,
+        KEY_BLOCK_KEY_CONSUME to false,
+        KEY_BLOCK_KEY_PASS_BACK to true,
+        KEY_SCREEN_CAPTURE_FIT to true,
         KEY_FILE_GUARD_ENABLE to false,
         KEY_FILE_OP_ALL to false,
         KEY_FILE_OP_INSERT to true,
@@ -1142,6 +1816,9 @@ object XpConfig {
         KEY_HIDE_APPS_LIST to HIDE_APPS_PRESET,
         KEY_PANEL_INJECT to true,
         KEY_DA_ENABLE to false,
+        KEY_DA_FAKE_MODE to DA_MODE_DEFAULT,
+        KEY_DA_SCOPE to DA_SCOPE_CLOSE_AND_HOOK,
+        KEY_DA_CLOSE_MODE to DA_CLOSE_CONTINUOUS,
         KEY_DA_MASTER to false,
         KEY_DA_LOCK to true,
         KEY_DA_PASSWORD to true,
@@ -1200,11 +1877,23 @@ object XpConfig {
     
 
 
+    
+
+
+
+
+
+
+
     val ACC_SCOPE_OPTIONS: List<String> = listOf(
-        "只关闭服务",
-        "关闭 + 全部钩子",
         "只运行钩子",
+        "关闭服务 + 运行钩子",
+        "只关闭服务",
     )
+
+    const val ACC_SCOPE_HOOK_ONLY = 0
+    const val ACC_SCOPE_CLOSE_AND_HOOK = 1
+    const val ACC_SCOPE_CLOSE_ONLY = 2
 
     
 
@@ -1221,6 +1910,12 @@ object XpConfig {
     const val PERM_SENSORS = "SENSORS"
     const val PERM_NOTIFICATION = "NOTIFICATION"
     
+    const val PERM_NEARBY = "NEARBY_DEVICES"
+    
+    const val PERM_ACTIVITY = "ACTIVITY_RECOGNITION"
+    
+    const val PERM_HEALTH = "HEALTH"
+    
     const val PERM_ACCESSIBILITY = "SPECIAL_ACCESSIBILITY"
     const val PERM_DEVICE_ADMIN = "SPECIAL_DEVICE_ADMIN"
     const val PERM_NOTIFICATION_LISTENER = "SPECIAL_NOTI_LISTENER"
@@ -1234,6 +1929,10 @@ object XpConfig {
     const val PERM_VPN = "SPECIAL_VPN"
     const val PERM_WRITE_SETTINGS = "SPECIAL_WRITE_SETTINGS"
     const val PERM_BACKGROUND_POPUP = "SPECIAL_BACKGROUND_POPUP"
+    
+    const val PERM_MANAGE_MEDIA = "SPECIAL_MANAGE_MEDIA"
+    
+    const val PERM_FULL_SCREEN_INTENT = "SPECIAL_FULL_SCREEN_INTENT"
 
     
 
@@ -1249,6 +1948,48 @@ object XpConfig {
         
         val special: Boolean = false,
     )
+
+    
+
+
+
+
+
+
+
+
+    private val HEALTH_TYPES = listOf(
+        "ACTIVE_CALORIES_BURNED", "BASAL_BODY_TEMPERATURE", "BASAL_METABOLIC_RATE",
+        "BLOOD_GLUCOSE", "BLOOD_PRESSURE", "BODY_FAT", "BODY_TEMPERATURE",
+        "BODY_WATER_MASS", "BONE_MASS", "CERVICAL_MUCUS", "DISTANCE",
+        "ELEVATION_GAINED", "EXERCISE", "FLOORS_CLIMBED", "HEART_RATE",
+        "HEART_RATE_VARIABILITY", "HEIGHT", "HYDRATION", "INTERMENSTRUAL_BLEEDING",
+        "LEAN_BODY_MASS", "MENSTRUATION", "NUTRITION", "OVULATION_TEST",
+        "OXYGEN_SATURATION", "POWER", "RESPIRATORY_RATE", "RESTING_HEART_RATE",
+        "SEXUAL_ACTIVITY", "SKIN_TEMPERATURE", "SLEEP", "SPEED", "STEPS",
+        "TOTAL_CALORIES_BURNED", "VO2_MAX", "WEIGHT", "WHEELCHAIR_PUSHES",
+    )
+
+    
+    private val HEALTH_READ_ONLY = setOf(
+        "HEART_RATE", "HEART_RATE_VARIABILITY", "OXYGEN_SATURATION",
+        "RESPIRATORY_RATE", "RESTING_HEART_RATE", "BLOOD_PRESSURE",
+        "BLOOD_GLUCOSE", "BODY_TEMPERATURE", "BASAL_BODY_TEMPERATURE",
+        "HYDRATION", "NUTRITION", "SLEEP", "INTERMENSTRUAL_BLEEDING",
+        "OVULATION_TEST", "SEXUAL_ACTIVITY", "SKIN_TEMPERATURE",
+    )
+
+    val HEALTH_PERMS: Set<String> = buildSet {
+        for (t in HEALTH_TYPES) {
+            add("android.permission.health.READ_$t")
+            if (t !in HEALTH_READ_ONLY) add("android.permission.health.WRITE_$t")
+        }
+        
+        add("android.permission.health.WRITE_EXERCISE_ROUTE")
+        
+        add("android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND")
+        add("android.permission.health.READ_HEALTH_DATA_HISTORY")
+    }
 
     val PERM_GROUPS: List<PermGroup> = listOf(
         PermGroup(
@@ -1269,6 +2010,8 @@ object XpConfig {
                 Manifest.permission.READ_SMS,
                 Manifest.permission.SEND_SMS,
                 Manifest.permission.RECEIVE_SMS,
+                Manifest.permission.RECEIVE_WAP_PUSH,
+                Manifest.permission.RECEIVE_MMS,
                 "android.permission.READ_CELL_BROADCASTS",
             ),
             fakeData = true,
@@ -1293,6 +2036,9 @@ object XpConfig {
                 Manifest.permission.READ_PHONE_NUMBERS,
                 Manifest.permission.CALL_PHONE,
                 Manifest.permission.ANSWER_PHONE_CALLS,
+                "android.permission.ACCEPT_HANDOVER",
+                Manifest.permission.ADD_VOICEMAIL,
+                Manifest.permission.USE_SIP,
             ),
             fakeData = true,
             fakeHint = "本机号码 / IMEI / 订阅 ID 等会返回伪造的固定值",
@@ -1354,13 +2100,49 @@ object XpConfig {
                 Manifest.permission.BODY_SENSORS,
                 Manifest.permission.BODY_SENSORS_BACKGROUND,
             ),
-            fakeData = false,
+            fakeData = true,
+            fakeHint = "心率 / 血氧 / 体温 / 步数会返回符合真实量程的随机值",
         ),
         PermGroup(
             id = PERM_NOTIFICATION,
             label = "通知",
             perms = setOf(Manifest.permission.POST_NOTIFICATIONS),
-            fakeData = false,
+            fakeData = true,
+            fakeHint = "查询已发布通知时会返回几条虚构通知",
+        ),
+        PermGroup(
+            id = PERM_NEARBY,
+            label = "附近设备（蓝牙 / Wi-Fi / UWB）",
+            perms = setOf(
+                
+                "android.permission.BLUETOOTH_SCAN",
+                "android.permission.BLUETOOTH_CONNECT",
+                "android.permission.BLUETOOTH_ADVERTISE",
+                "android.permission.NEARBY_WIFI_DEVICES",
+                "android.permission.UWB_RANGING",
+                
+                "android.permission.ACCESS_LOCAL_NETWORK",
+                "android.permission.ACCESS_HID",
+            ),
+            fakeData = true,
+            fakeHint = "Android 12 起蓝牙权限拆成了三个；扫描结果会返回几个虚构设备（真实厂商名 + 真实 MAC 段）",
+        ),
+        PermGroup(
+            id = PERM_ACTIVITY,
+            label = "身体活动（运动识别）",
+            perms = setOf("android.permission.ACTIVITY_RECOGNITION"),
+            fakeData = true,
+            fakeHint = "Android 10 起成为运行时权限；步数 / 活动类型会返回虚构记录",
+        ),
+        
+        
+        
+        PermGroup(
+            id = PERM_HEALTH,
+            label = "健康数据（Health Connect）",
+            perms = HEALTH_PERMS,
+            fakeData = true,
+            fakeHint = "Android 14 起健康数据改用 android.permission.health.* 命名空间；心率 / 步数 / 睡眠等按真实量程返回",
         ),
 
         
@@ -1382,14 +2164,16 @@ object XpConfig {
             id = PERM_NOTIFICATION_LISTENER,
             label = "通知读取（通知监听）",
             perms = setOf("android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"),
-            fakeData = false,
+            fakeData = true,
+            fakeHint = "已发布通知列表会返回几条虚构通知",
             special = true,
         ),
         PermGroup(
             id = PERM_USAGE_STATS,
             label = "使用情况访问",
             perms = setOf("android.permission.PACKAGE_USAGE_STATS"),
-            fakeData = false,
+            fakeData = true,
+            fakeHint = "使用统计会返回几条虚构的应用使用记录（不再空列表）",
             special = true,
         ),
         PermGroup(
@@ -1452,6 +2236,20 @@ object XpConfig {
             id = PERM_BACKGROUND_POPUP,
             label = "后台弹出界面",
             perms = emptySet(),
+            fakeData = false,
+            special = true,
+        ),
+        PermGroup(
+            id = PERM_MANAGE_MEDIA,
+            label = "媒体管理权限",
+            perms = setOf("android.permission.MANAGE_MEDIA"),
+            fakeData = false,
+            special = true,
+        ),
+        PermGroup(
+            id = PERM_FULL_SCREEN_INTENT,
+            label = "全屏通知",
+            perms = setOf("android.permission.USE_FULL_SCREEN_INTENT"),
             fakeData = false,
             special = true,
         ),
@@ -1545,7 +2343,16 @@ object XpConfig {
         PERM_GROUPS.flatMap { g -> g.perms.map { p -> p to g } }.toMap()
 
     
-    fun groupOf(permission: String?): PermGroup? = permission?.let { PERM_INDEX[it] }
+    fun groupOf(permission: String?): PermGroup? {
+        if (permission.isNullOrBlank()) return null
+        PERM_INDEX[permission]?.let { return it }
+        
+        
+        if (permission.startsWith("android.permission.health.")) {
+            return groupById(PERM_HEALTH)
+        }
+        return null
+    }
 
     
     fun groupById(id: String): PermGroup? = PERM_GROUPS.firstOrNull { it.id == id }
@@ -1588,27 +2395,6 @@ object XpConfig {
     
     
     
-    fun encodeProps(list: List<Pair<String, String>>): String =
-        list.filter { it.first.trim().isNotEmpty() }
-            .joinToString("\n") { (k, v) -> "${k.trim()}=${if (v.isBlank()) "null" else v}" }
-
-    fun decodeProps(raw: String?): List<Pair<String, String>> =
-        raw?.split("\n")
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
-            ?.mapNotNull { line ->
-                val i = line.indexOf('=')
-                if (i <= 0) return@mapNotNull null
-                val k = line.substring(0, i).trim()
-                if (k.isEmpty()) return@mapNotNull null
-                var v = line.substring(i + 1)
-                if (v.equals("null", ignoreCase = true)) v = ""
-                k to v
-            } ?: emptyList()
-
-    
-    
-    
     
     
     
@@ -1627,7 +2413,6 @@ object XpConfig {
     data class NativeBits(
         val enableBuild: Boolean = false,
         val buildFields: Set<String> = emptySet(),   
-        val customProps: Map<String, String> = emptyMap(),
         val exSdkInt: Int = 0,
         val exKernel: String = "",
         val exArch: String = "",
@@ -1639,19 +2424,21 @@ object XpConfig {
         val exTimeEnable: Boolean = false,
         val exTimeOffset: Int = 0,
         val exUptimeEnable: Boolean = false,
-        val hidePaths: List<String> = emptyList(),
+        val exMemEnable: Boolean = false,
+        val exTempEnable: Boolean = false,
+        val exBatteryEnable: Boolean = false,
         val rootFakeFile: Boolean = false,
         val blockExec: Boolean = false,
         val nativeBlockExit: Boolean = false,
         val vpnHideIface: Boolean = false,
         val nativeAntiDetect: Boolean = false,
+        val blockSensor: Boolean = false,
     )
 
     
     internal fun nativeBits(cfg: XpState.Snapshot): NativeBits = NativeBits(
         enableBuild = cfg.enableBuild,
         buildFields = cfg.buildValues.keys,
-        customProps = cfg.customProps,
         exSdkInt = cfg.exSdkInt,
         exKernel = cfg.exKernel,
         exArch = cfg.exArch,
@@ -1663,12 +2450,15 @@ object XpConfig {
         exTimeEnable = cfg.exTimeEnable,
         exTimeOffset = cfg.exTimeOffset,
         exUptimeEnable = cfg.exUptimeEnable,
-        hidePaths = cfg.hidePaths,
+        exMemEnable = cfg.exMemEnable,
+        exTempEnable = cfg.exTempEnable,
+        exBatteryEnable = cfg.exBatteryEnable,
         rootFakeFile = cfg.rootFakeEnable && cfg.rootFakeFile,
         blockExec = cfg.blockExec,
         nativeBlockExit = cfg.nativeBlockExit,
         vpnHideIface = cfg.vpnHideEnable && cfg.vpnHideIface,
         nativeAntiDetect = cfg.nativeAntiDetect,
+        blockSensor = cfg.blockSensor,
     )
 
     
@@ -1679,7 +2469,6 @@ object XpConfig {
         return NativeBits(
             enableBuild = cfg.bool(KEY_ENABLE_BUILD, true),
             buildFields = filled,
-            customProps = decodeProps(cfg.str(KEY_CUSTOM_PROPS, "")).toMap(),
             exSdkInt = cfg.int(KEY_FAKE_SDK_INT, 0),
             exKernel = cfg.str(KEY_FAKE_KERNEL, "").trim(),
             exArch = cfg.str(KEY_FAKE_ARCH, "").trim(),
@@ -1691,7 +2480,9 @@ object XpConfig {
             exTimeEnable = cfg.bool(KEY_FAKE_TIME_ENABLE, false),
             exTimeOffset = cfg.int(KEY_FAKE_TIME_OFFSET, 0),
             exUptimeEnable = cfg.bool(KEY_FAKE_UPTIME_ENABLE, false),
-            hidePaths = decodePathLines(cfg.str(KEY_HIDE_PATHS, "")),
+            exMemEnable = cfg.bool(KEY_FAKE_MEM_ENABLE, false),
+            exTempEnable = cfg.bool(KEY_FAKE_TEMP_ENABLE, false),
+            exBatteryEnable = cfg.bool(KEY_FAKE_BATTERY_ENABLE, false),
             rootFakeFile = cfg.bool(KEY_ROOT_FAKE_ENABLE, false) &&
                 cfg.bool(KEY_ROOT_FAKE_FILE, true),
             blockExec = cfg.bool(KEY_BLOCK_EXEC, false),
@@ -1699,6 +2490,7 @@ object XpConfig {
             vpnHideIface = cfg.bool(KEY_VPN_HIDE_ENABLE, false) &&
                 cfg.bool(KEY_VPN_HIDE_IFACE, true),
             nativeAntiDetect = cfg.bool(KEY_NATIVE_ANTI_DETECT, DEF_NATIVE_ANTI_DETECT),
+            blockSensor = cfg.bool(KEY_BLOCK_SENSOR, false),
         )
     }
 
@@ -1716,50 +2508,79 @@ object XpConfig {
         }
 
         
-        val hasProps = b.customProps.isNotEmpty() ||
-            (b.enableBuild && (
-                b.buildFields.isNotEmpty() || b.exSdkInt > 0 || b.exDevOff ||
-                    b.exKernel.isNotEmpty() || b.exArch.isNotEmpty() ||
-                    b.exCpuInfoHw.isNotEmpty() || b.exPlatform.isNotEmpty() ||
-                    b.exCpuEnable
-                ))
+
+
+
+
+
+
+        fun needQuiet(bit: Int) {
+            mask = mask or bit
+        }
+
+        
+        val hasProps = b.enableBuild && (
+            b.buildFields.isNotEmpty() || b.exSdkInt > 0 || b.exDevOff ||
+                b.exKernel.isNotEmpty() || b.exArch.isNotEmpty() ||
+                b.exCpuInfoHw.isNotEmpty() || b.exPlatform.isNotEmpty() ||
+                b.exCpuEnable
+            )
         if (hasProps) need(g.PROP, "系统属性伪装")
 
         
-        if (b.enableBuild && (b.exKernel.isNotEmpty() || b.exArch.isNotEmpty())) {
-            need(g.UNAME, " ")
-        }
+        
+        
 
         
-        if (b.enableBuild &&
-            ((b.exTimeEnable && b.exTimeOffset != 0) || b.exUptimeEnable)
-        ) {
-            need(g.TIME, " ")
-        }
+        
+        
+       
+     
+   
 
         
         val cpuOn = b.enableBuild && (
             b.exCpuEnable || b.exCpuInfoHw.isNotEmpty() ||
                 b.buildFields.contains("SOC_MODEL") || b.buildFields.contains("HARDWARE")
             )
+        
+        
         val spoofFiles = (b.enableBuild && b.exKernel.isNotEmpty()) ||
-            cpuOn || (b.enableBuild && b.exUptimeEnable) || b.vpnHideIface
+            cpuOn || (b.enableBuild && b.exUptimeEnable) || b.vpnHideIface ||
+            (b.enableBuild && b.exMemEnable)
 
         
-        val hideOn = b.hidePaths.isNotEmpty()
         val rootOn = b.rootFakeFile
-        if (hideOn) need(g.STAT, " ")
         if (rootOn) need(g.STAT, "Root 伪装")
 
-        if (spoofFiles) need(g.FILE, " ")
-        else if (hideOn || rootOn) need(g.FILE, "文件访问拦截")
-        if (hideOn) need(g.DIR, "。")
+        
+        if (!spoofFiles && rootOn) need(g.FILE, "文件访问拦截")
+
+        
+        
+        
+        
+        
+        
+        if (spoofFiles) needQuiet(g.FILE)
+        if (b.enableBuild && (b.exKernel.isNotEmpty() || b.exArch.isNotEmpty())) {
+            needQuiet(g.UNAME)
+        }
+        if (b.enableBuild &&
+            ((b.exTimeEnable && b.exTimeOffset != 0) || b.exUptimeEnable)
+        ) {
+            needQuiet(g.TIME)
+        }
+        
+        
+        
+        
 
         
         if (b.blockExec) need(g.EXEC, "命令拦截")
 
         
-        if (b.nativeBlockExit) need(g.EXIT, "退出指拦截")
+        if (b.nativeBlockExit) need(g.EXIT, "退出拦截")
 
         
         if (b.vpnHideIface) need(g.NET, "VPN隐藏")
@@ -1767,7 +2588,12 @@ object XpConfig {
         
         if (b.enableBuild && b.exGpu.isNotEmpty()) need(g.GPU, "GPU 伪装")
 
-        if (mask != 0 && b.nativeAntiDetect) need(g.READ or g.MMAP or g.FILE, " ")
+        
+        
+        
+        
+        if (b.blockSensor) need(g.SENSOR, "传感器拦截")
+
 
         return mask to labels.toList()
     }
@@ -1802,13 +2628,6 @@ object XpConfig {
         }
         return (on && labels.isNotEmpty()) to hint
     }
-
-    
-    fun decodePathLines(raw: String?): List<String> =
-        raw?.split("\n", "\r\n", "\r")
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
-            ?.distinct() ?: emptyList()
 
     fun defaultApList(): String = encodeApList(
         listOf(

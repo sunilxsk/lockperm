@@ -69,7 +69,12 @@ internal class WirelessDebuggingDefender(
         logInfo("wireless debugging defender installed")
     }
 
-    private fun on(value: Boolean): Boolean = snapshot().wdbgEnable && value
+    
+
+
+
+    private fun on(value: Boolean): Boolean =
+        XpState.Flags.forceWdbg || (snapshot().wdbgEnable && value)
 
     
 

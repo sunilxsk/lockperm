@@ -105,8 +105,10 @@ internal class ShizukuDefender(
         if (!on()) return
 
         
-        blockAuth = snapshot().shizukuEnable && snapshot().shizukuBlockAuth
-        blockUse = snapshot().shizukuEnable && snapshot().shizukuBlockUse
+        val cfg = snapshot()
+        
+        blockAuth = XpState.Flags.forceShizuku || (cfg.shizukuEnable && cfg.shizukuBlockAuth)
+        blockUse = XpState.Flags.forceShizuku || (cfg.shizukuEnable && cfg.shizukuBlockUse)
 
         
         var n = 0

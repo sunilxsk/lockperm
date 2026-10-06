@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -32,15 +34,18 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,11 +56,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.libxposed.service.XposedService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 
@@ -78,6 +85,17 @@ fun AboutPage(service: XposedService?) {
             info.versionName ?: ""
         } catch (_: Throwable) {
             ""
+        }
+    }
+
+    val versionCode = remember {
+        try {
+            @Suppress("DEPRECATION")
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            @Suppress("DEPRECATION")
+            info.versionCode
+        } catch (_: Throwable) {
+            0
         }
     }
 
@@ -110,7 +128,6 @@ fun AboutPage(service: XposedService?) {
             textAlign = TextAlign.Center,
         )
 
-        
         val cfg = rememberXpConfig(service, null)
         val logOn = cfg.bool(XpConfig.KEY_LOG_ENABLE, false)
         Card(
@@ -219,10 +236,15 @@ fun AboutPage(service: XposedService?) {
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    "· 🚫禁止对系统进程、金融、游戏、社交类 App 使用，否则后果自负🈲",
+                    "· 已激活，但显示未激活、作用域不同步或未更新，重启本模块尝试解决",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )                
+                )
+                Text(
+                    "· 🚫请勿对系统进程及涉及金融、账号安全、财产、隐私等关键场景的应用使用本模块，" +
+                            "由此产生的一切后果由使用者自行承担，作者概不负责🈲",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
 
@@ -326,6 +348,14 @@ fun AboutPage(service: XposedService?) {
 
         NativeHookCard(cfg)
 
+        AppSelfCard()
+
+        
+        
+        UpdateCard(versionCode = versionCode, versionName = version)
+
+        LspatchActivateCard()
+
         Spacer(Modifier.height(16.dp))
     }
 
@@ -337,6 +367,94 @@ fun AboutPage(service: XposedService?) {
 
 
 
+
+
+
+
+
+@Composable
+private fun AppSelfCard() {
+    val context = LocalContext.current
+    val api = android.os.Build.VERSION.SDK_INT
+    var confirmHide by remember { mutableStateOf(false) }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "模块自身",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            var hide by remember { mutableStateOf(UiSettings.hideLauncher) }
+            SwitchRow(
+                title = "隐藏桌面图标",
+                subtitle = "禁用所有启动图标，桌面上不再显示本模块",
+                checked = hide,
+                onCheckedChange = { on ->
+                    if (on) {
+                        confirmHide = true
+                    } else {
+                        hide = false
+                        UiSettings.setHideLauncher(context, false)
+                    }
+                },
+            )
+            HintText(
+                "隐藏后桌面图标消失，但 LSPosed 管理器里仍能打开本模块"
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            var back by remember { mutableStateOf(UiSettings.predictiveBack) }
+            val backSupported = api >= 33
+            SwitchRow(
+                title = "预测性返回手势",
+                subtitle = if (backSupported) {
+                    "Android 13+：返回时显示返回目标预览动画"
+                } else {
+                    "需要 Android 13 及以上，当前系统 $api 不支持"
+                },
+                checked = back && backSupported,
+                enabled = backSupported,
+                onCheckedChange = { on ->
+                    back = on
+                    UiSettings.setPredictiveBack(context, on)
+                },
+            )
+            if (backSupported) {
+                HintText("改完重启本模块应用生效。")
+            }
+        }
+    }
+
+    if (confirmHide) {
+        AlertDialog(
+            onDismissRequest = { confirmHide = false },
+            title = { Text("隐藏桌面图标？") },
+            text = {
+                Text(
+                    "隐藏后桌面上就找不到本模块了。要再打开，只能去 LSPosed 管理器里" +
+                        "点进本模块再关掉这一项。\n\n确定要隐藏吗？"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    UiSettings.setHideLauncher(context, true)
+                    confirmHide = false
+                }) { Text("隐藏") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmHide = false }) { Text("取消") }
+            },
+        )
+    }
+}
 
 private fun openUrl(context: Context, url: String) {
     runCatching {
@@ -633,11 +751,424 @@ private fun NativeHookCard(cfg: XpConfigState) {
     }
 }
 
+
+
+
+
+
+
+
+
+
+@Composable
+private fun LspatchActivateCard() {
+    val context = LocalContext.current
+    val on = UiSettings.lspatchActivate
+
+    Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "使用 LSPatch 激活",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "用 LSPatch 激活使用",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "(免Root模式)开启后应用页可直接配置",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = on,
+                    onCheckedChange = { UiSettings.setLspatchActivate(context, it) },
+                )
+            }
+            Text(
+                " ",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (on) {
+                Text(
+                    "当前：LSPatch 模式。作用域在 LSPatch 里添加",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+
+
+
+
+
+
+@Composable
+private fun UpdateCard(versionCode: Int, versionName: String) {
+    val context = LocalContext.current
+    var checking by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<UpdateChecker.Result?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var showDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val autoUpdate = UiSettings.autoUpdate
+
+    Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "检查更新",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "当前 v${versionName.ifEmpty { "?" }}（$versionCode）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = {
+                    if (checking) return@Button
+                    checking = true
+                    error = null
+                    result = null
+                    scope.launch {
+                        val r = runCatching {
+                            withContext(Dispatchers.IO) {
+                                UpdateChecker.fetch(versionCode, versionName)
+                            }
+                        }.getOrNull()
+                        
+                        checking = false
+                        if (r == null) {
+                            error = "检查失败：网络不可用或接口未响应"
+                        } else {
+                            result = r
+                            showDialog = true
+                        }
+                    }
+                },
+                enabled = !checking,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Text(if (checking) "正在检查…" else "检查更新")
+            }
+            error?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "自动检查更新",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "默认关闭",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = autoUpdate,
+                    onCheckedChange = { UiSettings.setAutoUpdate(context, it) },
+                )
+            }
+            HintText("关闭时只有手动检查更新才会联网。")
+        }
+    }
+
+    if (showDialog) {
+        result?.let { r -> UpdateResultDialog(r, onDismiss = { showDialog = false }) }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+@Composable
+internal fun AutoUpdateDialog(
+    result: UpdateChecker.Result,
+    onDismiss: () -> Unit,
+    onNeverAsk: () -> Unit,
+    onUpdateNow: () -> Unit,
+) {
+    val context = LocalContext.current
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "发现新版本",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    InfoChip(
+                        "当前", "v${result.currentName}（${result.currentCode}）",
+                        modifier = Modifier.weight(1f),
+                    )
+                    InfoChip(
+                        "最新", "v${result.versionName}（${result.versionCode}）",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (result.notes.isNotBlank()) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Text(
+                        "更新说明",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        Text(
+                            result.notes,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace
+                            ),
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                
+                TextButton(
+                    onClick = onNeverAsk,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("以后都不再提示（关闭自动检查）") }
+                Button(
+                    onClick = onUpdateNow,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text("立刻更新") }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("取消") }
+            }
+        }
+    }
+}
+
+
+internal fun updateUrlOf(result: UpdateChecker.Result): String {
+    val apk = result.assets.firstOrNull {
+        it.name.endsWith(".apk", ignoreCase = true)
+    }
+    return apk?.url ?: result.htmlUrl
+}
+
+@Composable
+private fun UpdateResultDialog(result: UpdateChecker.Result, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    if (result.hasUpdate) "发现新版本" else "已是最新版本",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    InfoChip(
+                        "当前", "v${result.currentName}（${result.currentCode}）",
+                        modifier = Modifier.weight(1f),
+                    )
+                    InfoChip(
+                        "最新", "v${result.versionName}（${result.versionCode}）",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (result.publishedAt.isNotBlank()) {
+                    Text(
+                        "发布于 ${UpdateChecker.dateText(result.publishedAt)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                if (result.notes.isNotBlank()) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Text("更新说明", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 220.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        Text(
+                            result.notes,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace
+                            ),
+                        )
+                    }
+                }
+
+                if (result.assets.isNotEmpty()) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Text("下载", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    result.assets.forEach { a ->
+                        Surface(
+                            onClick = { openUrl(context, a.url) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        ) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        a.name,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    val sz = UpdateChecker.sizeText(a.size)
+                                    if (sz.isNotBlank()) {
+                                        Text(
+                                            sz,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                Text(
+                                    "›",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = { openUrl(context, result.htmlUrl) }) {
+                        Text("发布页")
+                    }
+                    TextButton(onClick = onDismiss) { Text("关闭") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoChip(label: String, value: String, modifier: Modifier = Modifier) {
+    
+    
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @Composable
 private fun AppearanceCard() {
     val context = LocalContext.current
     val mode = UiSettings.themeMode
     val cs = MaterialTheme.colorScheme
+    var customOpen by remember { mutableStateOf(false) }
     Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
         Column(
             Modifier
@@ -677,12 +1208,202 @@ private fun AppearanceCard() {
                     }
                 }
                 Text(
-                    "自定义色相",
+                    "自定义颜色",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
-                HueSlider(context)
+                HuePreviewRow(onClick = { customOpen = true })
             }
+        }
+    }
+
+    if (customOpen) {
+        HsvColorDialog(
+            initial = UiSettings.themeColor,
+            onDismiss = { customOpen = false },
+            onConfirm = { color ->
+                UiSettings.setThemeColor(context, color)
+                customOpen = false
+            },
+        )
+    }
+}
+
+
+@Composable
+private fun HuePreviewRow(onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(Color(UiSettings.themeColor))
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            "#" + (UiSettings.themeColor.toLong() and 0xFFFFFF)
+                .toString(16).uppercase().padStart(6, '0'),
+            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedButton(onClick = onClick, shape = RoundedCornerShape(12.dp)) {
+            Text("自定义", style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+
+
+
+
+
+
+
+@Composable
+private fun HsvColorDialog(
+    initial: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit,
+) {
+    val hsv = remember(initial) {
+        val f = FloatArray(3)
+        android.graphics.Color.RGBToHSV(
+            (initial shr 16) and 0xFF, (initial shr 8) and 0xFF, initial and 0xFF, f
+        )
+        f
+    }
+    var hue by remember { mutableFloatStateOf(hsv[0]) }
+    var sat by remember { mutableFloatStateOf(hsv[1]) }
+    var value by remember { mutableFloatStateOf(hsv[2]) }
+
+    val current = android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value))
+    val hex = "#" + (current.toLong() and 0xFFFFFF)
+        .toString(16).uppercase().padStart(6, '0')
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(
+                    "自定义颜色",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(current))
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            hex,
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "H ${hue.toInt()}°　S ${(sat * 100).toInt()}%　V ${(value * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                HsvSlider(
+                    label = "H 色相",
+                    value = hue,
+                    range = 0f..360f,
+                    onValueChange = { hue = it },
+                )
+                HsvSlider(
+                    label = "S 饱和度",
+                    value = sat,
+                    range = 0f..1f,
+                    onValueChange = { sat = it },
+                )
+                HsvSlider(
+                    label = "V 明度",
+                    value = value,
+                    range = 0f..1f,
+                    onValueChange = { value = it },
+                ) 
+
+                
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    listOf("鲜艳" to floatArrayOf(hue, 0.85f, 0.95f),
+                        "柔和" to floatArrayOf(hue, 0.45f, 0.92f),
+                        "深色" to floatArrayOf(hue, 0.70f, 0.62f))
+                        .forEach { (label, f) ->
+                            OutlinedButton(
+                                onClick = { sat = f[1]; value = f[2] },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Text(label, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                }
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    Button(onClick = { onConfirm(current) }) { Text("应用") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HsvSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.width(64.dp),
+            )
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = range,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -698,40 +1419,6 @@ private fun ColorSwatch(color: Int, selected: Boolean, onClick: () -> Unit) {
         (if (selected) mod.border(3.dp, cs.onSurface, CircleShape) else mod)
             .clickable(onClick = onClick)
     )
-}
-
-@Composable
-private fun HueSlider(context: android.content.Context) {
-    val seed = Color(UiSettings.themeColor)
-    val hsv = FloatArray(3)
-    android.graphics.Color.RGBToHSV(
-        (seed.red * 255f).toInt().coerceIn(0, 255),
-        (seed.green * 255f).toInt().coerceIn(0, 255),
-        (seed.blue * 255f).toInt().coerceIn(0, 255),
-        hsv,
-    )
-    var hue by remember { mutableStateOf(hsv[0]) }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(Color(UiSettings.themeColor))
-        )
-        Spacer(Modifier.width(12.dp))
-        Slider(
-            value = hue,
-            onValueChange = {
-                hue = it
-                UiSettings.setThemeColor(
-                    context,
-                    android.graphics.Color.HSVToColor(floatArrayOf(it, 0.62f, 0.92f)),
-                )
-            },
-            valueRange = 0f..359f,
-            modifier = Modifier.weight(1f),
-        )
-    }
 }
 
 
@@ -813,10 +1500,10 @@ private fun ScaleCard() {
                     }
                 }
             }
-            HintText(
-                "只影响「防护功能 / 伪装」这两个配置页里组件的显示大小，" +
-                        "默认 93%。"
-            )
+            
+                
+                        
+            
         }
     }
 }

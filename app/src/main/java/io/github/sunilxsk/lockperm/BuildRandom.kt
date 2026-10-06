@@ -37,20 +37,55 @@ internal object BuildRandom {
         val market: String,     
     )
 
+    
+
+
+
+
+
+
+
+
+
+
     private val PROFILES = listOf(
-        Profile("Samsung", "SM-S928B", "e3q", "e3qxx", "sun", "qcom", "kalama", "SM8650", "Adreno (TM) 750", "Galaxy S24 Ultra"),
-        Profile("Samsung", "SM-S921B", "e1q", "e1qxx", "sun", "qcom", "kalama", "SM8650", "Adreno (TM) 750", "Galaxy S24"),
-        Profile("Google", "Pixel 9 Pro", "caiman", "caiman", "zuma", "zuma", "zuma", "Tensor G4", "Mali-G715-Immortalis MC7", "Pixel 9 Pro"),
-        Profile("Google", "Pixel 8 Pro", "husky", "husky", "zuma", "zuma", "zuma", "Tensor G3", "Mali-G715-Immortalis MC7", "Pixel 8 Pro"),
-        Profile("Xiaomi", "24031PN0DC", "aurora", "aurora", "aurora", "qcom", "kalama", "SM8650", "Adreno (TM) 750", "Xiaomi 14 Ultra"),
-        Profile("Xiaomi", "2211133C", "fuxi", "fuxi", "taro", "qcom", "taro", "SM8550", "Adreno (TM) 740", "Xiaomi 13"),
+        
+        Profile("Samsung", "SM-S948B", "pa3q", "pa3qxx", "sm8850", "qcom", "sm8850", "SM8850", "Adreno (TM) 840", "Galaxy S26 Ultra"),
+        Profile("Xiaomi", "2602APN1DC", "nezha", "nezha", "sm8850", "qcom", "sm8850", "SM8850", "Adreno (TM) 840", "Xiaomi 17 Ultra"),
+        Profile("Xiaomi", "2509APN2BC", "popsicle", "popsicle", "sm8850", "qcom", "sm8850", "SM8850", "Adreno (TM) 840", "Xiaomi 17 Pro Max"),
+        Profile("OnePlus", "CPH2747", "OP5F15L1", "OP5F15L1", "sm8850", "qcom", "sm8850", "SM8850", "Adreno (TM) 840", "OnePlus 15"),
+        Profile("vivo", "V2515A", "PD2515", "PD2515", "sm8850", "qcom", "sm8850", "SM8850", "Adreno (TM) 840", "iQOO 15"),
+        Profile("honor", "MAA-AN10", "MAA", "MAA", "sm8850", "qcom", "sm8850", "SM8850", "Adreno (TM) 840", "honor Magic8 Pro"),
+        Profile("Realme", "RMX5101", "RE5C8F1", "RE5C8F1", "sm8850", "qcom", "sm8850", "SM8850", "Adreno (TM) 840", "Realme GT8 Pro"),
+
+        
+        Profile("Samsung", "SM-S938B", "pa1q", "pa1qxx", "sm8750", "qcom", "sm8750", "SM8750", "Adreno (TM) 830", "Galaxy S25 Ultra"),
+        Profile("Motorola", "XT2513-2", "eqs", "eqs", "sm8750", "qcom", "sm8750", "SM8750", "Adreno (TM) 830", "Moto Edge 60 Ultra"),
+        Profile("Nothing", "A069P", "asteroids", "asteroids", "sm8750", "qcom", "sm8750", "SM8750", "Adreno (TM) 830", "Nothing Phone 4 Pro"),
+        Profile("ASUS", "AI2501_A", "rog9", "rog9", "sm8750", "qcom", "sm8750", "SM8750", "Adreno (TM) 830", "ASUS ROG Phone 10 Pro"),
+
+        
+        Profile("vivo", "V2547A", "PD2547", "PD2547", "mt6993", "mt6993", "mt6993", "MT6993", "Mali-G1-Ultra MC12", "vivo X300 Pro"),
+        Profile("OPPO", "CPH2791", "OP5F51L1", "OP5F51L1", "mt6993", "mt6993", "mt6993", "MT6993", "Mali-G1-Ultra MC12", "OPPO Find X9 Pro"),
+
+        
+        Profile("vivo", "V2415A", "PD2415", "PD2415", "mt6991", "mt6991", "mt6991", "MT6991", "Immortalis-G925 MC12", "vivo X200 Pro"),
+
+        
+        Profile("Samsung", "SM-S942B", "pa2q", "pa2qxx", "s5e9965", "s5e9965", "s5e9965", "S5E9965", "Xclipse 960", "Galaxy S26"),
+
+        
+        Profile("Google", "Pixel 10 Pro", "blazer", "blazer", "blazer", "blazer", "blazer", "Tensor G5", "PowerVR D-Series DXT-48-1536", "Pixel 10 Pro"),
+        Profile("Google", "Pixel 10 Pro XL", "mustang", "mustang", "mustang", "mustang", "mustang", "Tensor G5", "PowerVR D-Series DXT-48-1536", "Pixel 10 Pro XL"),
+
+        
+        Profile("HUAWEI", "PLR-AL00", "PLR", "PLR", "PLR", "kirin", "kirin9020", "Kirin 9020", "Maleoon 920", "HUAWEI Mate 80 Pro"),
+        Profile("HUAWEI", "PUR-AL00", "PUR", "PUR", "PUR", "kirin", "kirin9020", "Kirin 9020", "Maleoon 920", "HUAWEI Mate X7"),
+
+        
+        Profile("Xiaomi", "24031PN0DC", "aurora", "aurora", "kalama", "qcom", "kalama", "SM8650", "Adreno (TM) 750", "Xiaomi 14 Ultra"),
         Profile("OnePlus", "CPH2585", "OP5A3BL1", "OP5A3BL1", "kalama", "qcom", "kalama", "SM8650", "Adreno (TM) 750", "OnePlus 12"),
-        Profile("vivo", "V2318DA", "PD2318", "PD2318", "mt6989", "mt6989", "mt6989", "MT6989", "Mali-G720 Immortalis MP12", "vivo X100 Pro"),
-        Profile("OPPO", "CPH2557", "OP5A71L1", "OP5A71L1", "mt6989", "mt6989", "mt6989", "MT6989", "Mali-G720 Immortalis MP12", "OPPO Find X7"),
-        Profile("Realme", "RMX3771", "RE58CB1", "RE58CB1", "kalama", "qcom", "kalama", "SM8650", "Adreno (TM) 750", "Realme GT5 Pro"),
-        Profile("HUAWEI", "ALN-AL00", "ALN", "ALN", "ALN", "kirin", "kirin9000s", "Kirin 9000s", "Maleoon 910", "HUAWEI Mate 60 Pro"),
-        Profile("honor", "MAA-AN00", "MAA", "MAA", "kalama", "qcom", "kalama", "SM8650", "Adreno (TM) 750", "honor Magic6 Pro"),
-        Profile("Motorola", "XT2321-2", "eqc", "eqc", "kalama", "qcom", "kalama", "SM8650", "Adreno (TM) 750", "Moto Edge 50 Ultra"),
+        Profile("Samsung", "SM-S928B", "e3q", "e3qxx", "kalama", "qcom", "kalama", "SM8650", "Adreno (TM) 750", "Galaxy S24 Ultra"),
     )
 
     private val BRANDS = arrayOf(
@@ -60,37 +95,38 @@ internal object BuildRandom {
 
     private val MODELS = mapOf(
         "Samsung" to arrayOf(
-            "Galaxy S24 Ultra", "Galaxy S24", "Galaxy S23 Ultra", "Galaxy S23",
-            "Galaxy Z Fold 6", "Galaxy Z Flip 6", "Galaxy A55", "Galaxy A35",
+            "Galaxy S26 Ultra", "Galaxy S26", "Galaxy S25 Ultra", "Galaxy S25",
+            "Galaxy Z Fold 7", "Galaxy Z Flip 7", "Galaxy A57", "Galaxy A37",
         ),
-        "Google" to arrayOf("Pixel 9 Pro XL", "Pixel 9 Pro", "Pixel 9", "Pixel 8a", "Pixel 8 Pro", "Pixel 7a"),
-        "Xiaomi" to arrayOf("Xiaomi 14 Ultra", "Xiaomi 14 Pro", "Xiaomi 14", "Redmi Note 13 Pro+", "Redmi K70"),
-        "OnePlus" to arrayOf("OnePlus 12", "OnePlus 12R", "OnePlus Nord 4", "OnePlus Ace 3"),
-        "Motorola" to arrayOf("Moto G84", "Moto Edge 50 Ultra", "Moto X50 Ultra", "Moto G Stylus 5G"),
-        "Nothing" to arrayOf("Nothing Phone 2", "Nothing Phone 2a", "Nothing Phone 3"),
-        "Realme" to arrayOf("Realme GT 6", "Realme GT Neo 6", "Realme 12 Pro+"),
-        "HUAWEI" to arrayOf("HUAWEI Mate 60 Pro", "HUAWEI P60 Pro", "HUAWEI nova 12"),
-        "vivo" to arrayOf("vivo X100 Pro", "vivo X100", "vivo V30 Pro"),
-        "OPPO" to arrayOf("OPPO Find X7 Ultra", "OPPO Find N3", "OPPO Reno 11 Pro"),
-        "honor" to arrayOf("honor Magic6 Pro", "honor Magic V2", "honor 200 Pro"),
-        "ASUS" to arrayOf("ASUS ROG Phone 8 Pro", "ASUS Zenfone 11 Ultra"),
+        "Google" to arrayOf("Pixel 10 Pro XL", "Pixel 10 Pro", "Pixel 10", "Pixel 9a", "Pixel 9 Pro", "Pixel 8 Pro"),
+        "Xiaomi" to arrayOf("Xiaomi 17 Ultra", "Xiaomi 17 Pro Max", "Xiaomi 17", "Redmi K90 Pro", "Redmi Turbo 5 Max"),
+        "OnePlus" to arrayOf("OnePlus 15", "OnePlus 15R", "OnePlus Nord 5", "OnePlus Ace 6"),
+        "Motorola" to arrayOf("Moto Edge 60 Ultra", "Moto X60 Ultra", "Moto G86", "Moto G Stylus 5G"),
+        "Nothing" to arrayOf("Nothing Phone 4 Pro", "Nothing Phone 4a", "Nothing Phone 3"),
+        "Realme" to arrayOf("Realme GT8 Pro", "Realme GT Neo 8", "Realme 16 Pro+"),
+        "HUAWEI" to arrayOf("HUAWEI Mate 80 Pro", "HUAWEI Mate X7", "HUAWEI Pura 80", "HUAWEI nova 15"),
+        "vivo" to arrayOf("vivo X300 Pro", "vivo X300", "vivo X Fold 6", "iQOO 15"),
+        "OPPO" to arrayOf("OPPO Find X9 Pro", "OPPO Find X9", "OPPO Find N6", "OPPO Reno 15 Pro"),
+        "honor" to arrayOf("honor Magic8 Pro", "honor Magic V6", "honor 400 Pro"),
+        "ASUS" to arrayOf("ASUS ROG Phone 10 Pro", "ASUS Zenfone 13 Ultra"),
     )
 
     
 
     
-    private data class GpuNumbers(
+    data class GpuNumbers(
         val vendor: String, val glVersion: String, val glsl: String, val vkApi: String,
         val driver: String, val vendorId: String, val deviceId: String,
         val memoryMb: Int, val maxTex: Int, val layers: Int, val push: Int,
     )
 
-    private fun gpuNumbersFor(gpu: String): GpuNumbers {
+    fun gpuNumbersFor(gpu: String): GpuNumbers {
         val g = gpu.uppercase()
         return when {
+            
             g.contains("ADRENO") -> GpuNumbers(
                 "Qualcomm", "OpenGL ES 3.2 V@0502.0", "OpenGL ES GLSL ES 3.20",
-                "1.1.0", "0x8020000", "0x5143", "0x72120000",
+                "1.3.0", "0x8020000", "0x5143", "0x72120000",
                 12228, 16384, 2048, 256,
             )
             g.contains("MALEOON") -> GpuNumbers(
@@ -98,22 +134,43 @@ internal object BuildRandom {
                 "1.0.0", "0x1000000", "0x13B6", "0x9000000",
                 8192, 16384, 2048, 256,
             )
+            g.contains("XCLIPSE") -> GpuNumbers(
+                "Samsung", "OpenGL ES 3.2 V@0502.0", "OpenGL ES GLSL ES 3.20",
+                "1.3.0", "0x2000000", "0x13B5", "0x72120000",
+                10240, 16384, 4096, 256,
+            )
+            g.contains("POWERVR") || g.contains("IMG") -> GpuNumbers(
+                "Imagination Technologies", "OpenGL ES 3.2 V@0502.0", "OpenGL ES GLSL ES 3.20",
+                "1.3.0", "0x2000000", "0x1010", "0x72120000",
+                8192, 16384, 4096, 256,
+            )
             else -> GpuNumbers(  
                 "ARM", "OpenGL ES 3.2 v1.r32p1", "OpenGL ES GLSL ES 3.20",
-                "1.1.0", "0x2000000", "0x13B5", "0x72120000",
+                "1.3.0", "0x2000000", "0x13B5", "0x72120000",
                 7469, 16384, 4096, 256,
             )
         }
     }
 
-    fun generate(): Map<String, String> {
+    
+    fun generate(): Map<String, Any?> {
         val p = PROFILES[RANDOM.nextInt(PROFILES.size)]
         val brand = p.brand
         val model = p.model
         val manufacturer = brand
         
-        val release = arrayOf("12", "13", "14", "15")[RANDOM.nextInt(4)]
-        val sdk = XpConfig.sdkFor(release)
+        
+        
+        
+        
+        
+        val realSdk = runCatching { android.os.Build.VERSION.SDK_INT }.getOrDefault(0)
+        val pool = XpConfig.ANDROID_VERSIONS
+            .filter { it.second >= 30 && (realSdk <= 0 || it.second <= realSdk) }
+            .ifEmpty { listOf(XpConfig.ANDROID_VERSIONS.last()) }
+        val picked = pool[RANDOM.nextInt(pool.size)]
+        val release = picked.first
+        val sdk = picked.second
         val device = p.device
         val product = p.product
         val board = p.board
@@ -122,7 +179,7 @@ internal object BuildRandom {
         val fingerprint = brand.lowercase() + "/" + product + "/" + device + ":" +
                 release + "/" + id + "/" + incremental + ":user/release-keys"
 
-        val out = HashMap<String, String>()
+        val out = HashMap<String, Any?>()
         out[XpConfig.KEY_BUILD_BRAND] = brand
         out[XpConfig.KEY_BUILD_MANUFACTURER] = manufacturer
         out[XpConfig.KEY_BUILD_MODEL] = model
@@ -135,6 +192,15 @@ internal object BuildRandom {
         out[XpConfig.KEY_BUILD_SOC_MODEL] = p.soc
         out[XpConfig.KEY_FAKE_CPUINFO_HW] = p.soc
         out[XpConfig.KEY_FAKE_PLATFORM] = p.platform
+        
+        
+        out[XpConfig.KEY_FAKE_CPU_CORES] = XpConfig.cpuCoreCount(p.soc)
+        
+        out[XpConfig.KEY_FAKE_CPU_ENABLE] = true
+        out[XpConfig.KEY_FAKE_CPU_MIN_FREQ] = ""
+        out[XpConfig.KEY_FAKE_CPU_MAX_FREQ] = ""
+        out[XpConfig.KEY_FAKE_CPU_CUR_FREQ] = ""
+
         out[XpConfig.KEY_FAKE_GPU] = p.gpu
         
         val g = gpuNumbersFor(p.gpu)
@@ -150,7 +216,7 @@ internal object BuildRandom {
         out[XpConfig.KEY_FAKE_GPU_MAX_CUBE] = g.maxTex.toString()
         out[XpConfig.KEY_FAKE_GPU_MAX_LAYERS] = g.layers.toString()
         out[XpConfig.KEY_FAKE_GPU_PUSH] = g.push.toString()
-        out[XpConfig.KEY_FAKE_SDK_INT] = sdk.toString()
+        out[XpConfig.KEY_FAKE_SDK_INT] = sdk
         out[XpConfig.KEY_BUILD_FINGERPRINT] = fingerprint
         out[XpConfig.KEY_BUILD_ID] = id
         out[XpConfig.KEY_BUILD_DISPLAY] = id
@@ -163,8 +229,9 @@ internal object BuildRandom {
                 "-240101-B-" + (RANDOM.nextInt(9000) + 1000)
         out[XpConfig.KEY_BUILD_SERIAL] = randStr(8).uppercase()
         out[XpConfig.KEY_BUILD_RELEASE] = release
-        out[XpConfig.KEY_BUILD_SECURITY_PATCH] = "2024-" +
-                pad2(RANDOM.nextInt(12) + 1) + "-" + pad2(RANDOM.nextInt(28) + 1)
+        
+        out[XpConfig.KEY_BUILD_SECURITY_PATCH] = arrayOf("2025", "2026")[RANDOM.nextInt(2)] +
+                "-" + pad2(RANDOM.nextInt(12) + 1) + "-" + pad2(RANDOM.nextInt(28) + 1)
         out[XpConfig.KEY_BUILD_INCREMENTAL] = incremental
         out[XpConfig.KEY_BUILD_CODENAME] = "REL"
         out[XpConfig.KEY_BUILD_BASE_OS] = ""

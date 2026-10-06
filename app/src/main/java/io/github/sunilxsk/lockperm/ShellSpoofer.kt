@@ -56,8 +56,7 @@ internal class ShellSpoofer(
         
         
         val cfg = snapshot()
-        val nothing = FakeProps.build(cfg).isEmpty() &&
-            cfg.hidePaths.isEmpty() && !cfg.rootFakeEnable
+        val nothing = FakeProps.build(cfg).isEmpty() && !cfg.rootFakeEnable
         if (nothing) {
             logInfo("shell spoofer skipped (nothing to spoof)")
             return
@@ -134,12 +133,6 @@ internal class ShellSpoofer(
         if (tokens.isEmpty()) return null
         val cfg = snapshot()
 
-        
-        if (cfg.hidePaths.isNotEmpty()) {
-            val joined = tokens.joinToString(" ")
-            if (cfg.hidePaths.any { joined.contains(it) }) return noSuchFile()
-        }
-
         val gi = tokens.indexOfFirst { base(it) == "getprop" }
         if (gi >= 0) return getpropScript(tokens, gi, cfg)
 
@@ -148,6 +141,17 @@ internal class ShellSpoofer(
 
         val ci = tokens.indexOfFirst { base(it) == "cat" }
         if (ci >= 0) return catScript(tokens, ci, cfg)
+
+        
+        
+        val dfi = tokens.indexOfFirst { base(it) == "df" }
+        if (dfi >= 0) {
+            dfScript(tokens, cfg)?.let { return it }
+        }
+        val dui = tokens.indexOfFirst { base(it) == "du" }
+        if (dui >= 0) {
+            duScript(tokens, cfg)?.let { return it }
+        }
 
         if (cfg.rootFakeEnable) return rootScript(tokens, cfg)
         return null
@@ -221,6 +225,38 @@ internal class ShellSpoofer(
             "/proc/sys/kernel/arch" -> FakeProps.arch(cfg).ifEmpty { null }
             else -> null
         }
+    }
+
+    
+
+    private fun dfScript(tokens: List<String>, cfg: XpState.Snapshot): String? {
+        if (!cfg.enableBuild || !cfg.mem2Enable) return null
+        val totalKb = cfg.storTotalGb.coerceIn(1, 8192) * 1024L * 1024L
+        val availKb = cfg.storAvailGb.coerceIn(0, cfg.storTotalGb.coerceAtLeast(1)) * 1024L * 1024L
+        val usedKb = (totalKb - availKb).coerceAtLeast(0L)
+        val usedPct = if (totalKb > 0) usedKb * 100L / totalKb else 0L
+        val memKb = cfg.memTotalMb.coerceIn(256, 262144) * 1024L
+        
+        
+        return printfLines(
+            listOf(
+                "Filesystem           1K-blocks      Used Available Use% Mounted on",
+                "/dev/block/dm-8      $totalKb $usedKb $availKb ${usedPct}% /data",
+                "/dev/fuse            $totalKb $usedKb $availKb ${usedPct}% /storage/emulated",
+                "tmpfs                $memKb ${memKb / 8} ${memKb * 7 / 8} 12% /dev",
+            )
+        )
+    }
+
+    private fun duScript(tokens: List<String>, cfg: XpState.Snapshot): String? {
+        if (!cfg.enableBuild || !cfg.mem2Enable) return null
+        val human = tokens.any { it.startsWith("-") && it.contains("h") }
+        val path = tokens.drop(1).firstOrNull { !it.startsWith("-") } ?: return null
+        val totalKb = cfg.storTotalGb.coerceIn(1, 8192) * 1024L * 1024L
+        val availKb = cfg.storAvailGb.coerceIn(0, cfg.storTotalGb.coerceAtLeast(1)) * 1024L * 1024L
+        val usedKb = (totalKb - availKb).coerceAtLeast(0L)
+        val text = if (human) "${usedKb / 1024L / 1024L}G\t$path" else "$usedKb\t$path"
+        return printfLines(listOf(text))
     }
 
     
@@ -311,10 +347,6 @@ internal class ShellSpoofer(
     }
 
     private fun maskCmd(cmd: String): String = "($cmd) 2>/dev/null; exit 0"
-
-    
-    private fun noSuchFile(): String =
-        "printf '%s\\n' 'No such file or directory' >&2; exit 1"
 
     private fun printfLines(lines: List<String>): String =
         "printf '%s\\n' " + lines.joinToString(" ") { q(it) }

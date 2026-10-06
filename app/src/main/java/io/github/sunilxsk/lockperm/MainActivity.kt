@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -95,6 +96,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -105,7 +107,11 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -129,9 +135,37 @@ import androidx.compose.ui.draw.scale
 
 
 class MainActivity : ComponentActivity() {
+    
+
+
+
+
+
+
+
+
+
+    private fun setupPredictiveBack() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        if (!UiSettings.predictiveBack) return
+        runCatching {
+            val dispatcher = onBackInvokedDispatcher
+            val cb = object : android.window.OnBackInvokedCallback {
+                override fun onBackInvoked() {
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+            dispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                cb,
+            )
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         UiSettings.load(this)
+        setupPredictiveBack()
         enableEdgeToEdge()
         setContent {
             XpTheme {
@@ -193,36 +227,56 @@ private fun defaultLightScheme(): ColorScheme = lightColorScheme(
 )
 
 
+
+
+
+
+
+
+
+
+
+
+
 private fun schemeFromSeed(seed: Color, dark: Boolean): ColorScheme {
+    val r = (seed.red * 255f).toInt().coerceIn(0, 255)
+    val g = (seed.green * 255f).toInt().coerceIn(0, 255)
+    val b = (seed.blue * 255f).toInt().coerceIn(0, 255)
+
     val hsv = FloatArray(3)
-    android.graphics.Color.RGBToHSV(
-        (seed.red * 255f).toInt().coerceIn(0, 255),
-        (seed.green * 255f).toInt().coerceIn(0, 255),
-        (seed.blue * 255f).toInt().coerceIn(0, 255),
-        hsv,
-    )
+    android.graphics.Color.RGBToHSV(r, g, b, hsv)
     val h = hsv[0]
-    val s = hsv[1].coerceIn(0.30f, 0.95f)
+    val v = hsv[2]
+    
+    
+    val gray = hsv[1] < 0.08f
+    val s = if (gray) 0f else hsv[1].coerceIn(0.25f, 0.95f)
 
     fun tone(value: Float, sat: Float = s, hue: Float = h): Color =
         Color(android.graphics.Color.HSVToColor(floatArrayOf(hue % 360f, sat, value)))
 
+    
+    val picked = Color(android.graphics.Color.HSVToColor(floatArrayOf(h, s, v)))
     val bg = if (dark) Color(0xFF111318) else Color(0xFFF9F9FF)
-    val surfaceVar = if (dark) tone(0.18f, s * 0.45f) else tone(0.94f, s * 0.22f)
+    val primary = keepVisible(picked, bg)
     val onBg = if (dark) Color(0xFFE4E2E9) else Color(0xFF1B1B21)
+    val surfaceVar = if (dark) tone(0.18f, s * 0.45f) else tone(0.94f, s * 0.22f)
+
+    val secondary = tone(if (dark) 0.72f else 0.48f, s * 0.55f, h + 28f)
+    val tertiary = tone(if (dark) 0.74f else 0.46f, s * 0.60f, h + 62f)
 
     return if (dark) {
         darkColorScheme(
-            primary = tone(0.80f),
-            onPrimary = Color(0xFF0B2C4A),
+            primary = primary,
+            onPrimary = readableOn(primary),
             primaryContainer = tone(0.32f),
             onPrimaryContainer = tone(0.92f, s * 0.35f),
-            secondary = tone(0.72f, s * 0.55f, h + 28f),
-            onSecondary = Color(0xFF10202C),
+            secondary = secondary,
+            onSecondary = readableOn(secondary),
             secondaryContainer = tone(0.28f, s * 0.45f, h + 28f),
             onSecondaryContainer = tone(0.90f, s * 0.30f, h + 28f),
-            tertiary = tone(0.74f, s * 0.60f, h + 62f),
-            onTertiary = Color(0xFF241332),
+            tertiary = tertiary,
+            onTertiary = readableOn(tertiary),
             tertiaryContainer = tone(0.30f, s * 0.45f, h + 62f),
             onTertiaryContainer = tone(0.92f, s * 0.30f, h + 62f),
             background = bg,
@@ -236,16 +290,16 @@ private fun schemeFromSeed(seed: Color, dark: Boolean): ColorScheme {
         )
     } else {
         lightColorScheme(
-            primary = tone(0.52f),
-            onPrimary = Color.White,
+            primary = primary,
+            onPrimary = readableOn(primary),
             primaryContainer = tone(0.90f, s * 0.55f),
             onPrimaryContainer = tone(0.24f),
-            secondary = tone(0.48f, s * 0.45f, h + 28f),
-            onSecondary = Color.White,
+            secondary = secondary,
+            onSecondary = readableOn(secondary),
             secondaryContainer = tone(0.92f, s * 0.30f, h + 28f),
             onSecondaryContainer = tone(0.22f, s * 0.4f, h + 28f),
-            tertiary = tone(0.46f, s * 0.50f, h + 62f),
-            onTertiary = Color.White,
+            tertiary = tertiary,
+            onTertiary = readableOn(tertiary),
             tertiaryContainer = tone(0.92f, s * 0.32f, h + 62f),
             onTertiaryContainer = tone(0.22f, s * 0.4f, h + 62f),
             background = bg,
@@ -261,6 +315,37 @@ private fun schemeFromSeed(seed: Color, dark: Boolean): ColorScheme {
 }
 
 
+private fun lumOf(c: Color): Float =
+    0.2126f * c.red + 0.7152f * c.green + 0.0722f * c.blue
+
+
+private fun readableOn(c: Color): Color =
+    if (lumOf(c) > 0.55f) Color.Black else Color.White
+
+
+
+
+
+
+private fun keepVisible(c: Color, bg: Color): Color {
+    val lc = lumOf(c)
+    val lb = lumOf(bg)
+    if (kotlin.math.abs(lc - lb) >= 0.22f) return c
+    val hsv = FloatArray(3)
+    android.graphics.Color.RGBToHSV(
+        (c.red * 255f).toInt().coerceIn(0, 255),
+        (c.green * 255f).toInt().coerceIn(0, 255),
+        (c.blue * 255f).toInt().coerceIn(0, 255),
+        hsv,
+    )
+    
+    val want = if (lb > 0.5f) lb - 0.28f else lb + 0.28f
+    val nv = if (lc <= 0.02f) want.coerceIn(0f, 1f)
+    else (hsv[2] * (want / lc)).coerceIn(0.05f, 1f)
+    return Color(
+        android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], nv))
+    )
+}
 
 @Composable
 fun MainScreen() {
@@ -281,6 +366,23 @@ fun MainScreen() {
     LaunchedEffect(Unit) { appList.load(context) }
 
     
+    
+    
+    var autoResult by remember { mutableStateOf<UpdateChecker.Result?>(null) }
+    LaunchedEffect(Unit) {
+        if (!UiSettings.autoUpdate) return@LaunchedEffect
+        val (code, name) = runCatching {
+            @Suppress("DEPRECATION")
+            val i = context.packageManager.getPackageInfo(context.packageName, 0)
+            i.versionCode to (i.versionName ?: "")
+        }.getOrDefault(0 to "")
+        val r = runCatching {
+            withContext(Dispatchers.IO) { UpdateChecker.fetch(code, name) }
+        }.getOrNull() ?: return@LaunchedEffect
+        if (r.hasUpdate) autoResult = r
+    }
+
+    
     androidx.activity.compose.BackHandler(enabled = configPkg != null) {
         if (configPkg != null) {
             configPkg = null
@@ -288,18 +390,67 @@ fun MainScreen() {
         }
     }
 
-    DisposableEffect(Unit) {
-        val listener = object : XposedServiceHelper.OnServiceListener {
+    
+    
+    
+    
+    
+    
+    
+    
+    var serviceUsable by remember { mutableStateOf<Boolean?>(null) }
+    var verifyTick by remember { mutableIntStateOf(0) }
+
+    
+    
+    val listener = remember {
+        object : XposedServiceHelper.OnServiceListener {
             override fun onServiceBind(service: XposedService) {
                 serviceState = service
+                verifyTick++
             }
 
             override fun onServiceDied(service: XposedService) {
                 serviceState = null
+                serviceUsable = false
             }
         }
+    }
+
+    LaunchedEffect(verifyTick, serviceState) {
+        val svc = serviceState
+        if (svc == null) {
+            serviceUsable = false
+            return@LaunchedEffect
+        }
+        serviceUsable = null
+        serviceUsable = probeService(svc)
+    }
+
+    DisposableEffect(Unit) {
         XposedServiceHelper.registerListener(listener)
         onDispose { }
+    }
+
+    
+    
+    val currentService by androidx.compose.runtime.rememberUpdatedState(serviceState)
+    val activity = context as? androidx.activity.ComponentActivity
+    DisposableEffect(activity) {
+        var observer: androidx.lifecycle.LifecycleEventObserver? = null
+        if (activity != null) {
+            observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                if (event != androidx.lifecycle.Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
+                
+                
+                runCatching { XposedServiceHelper.registerListener(listener) }
+                if (currentService != null) verifyTick++
+            }
+            activity.lifecycle.addObserver(observer)
+        }
+        onDispose {
+            observer?.let { activity?.lifecycle?.removeObserver(it) }
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -343,15 +494,57 @@ fun MainScreen() {
                     label = configLabel,
                     onBack = { configPkg = null },
                 )
-            } else when (tab) {
-                0 -> HomePage(serviceState)
-                1 -> AppsPage(serviceState, appList) { pkg, label ->
-                    configLabel = label
-                    configPkg = pkg
+            } else {
+                
+                
+                
+                AnimatedContent(
+                    targetState = tab,
+                    transitionSpec = {
+                        val dir = if (targetState > initialState) 1 else -1
+                        (fadeIn(animationSpec = tween(160)) +
+                            slideInHorizontally(
+                                animationSpec = tween(200)
+                            ) { (it / 8) * dir }) togetherWith
+                            (fadeOut(animationSpec = tween(160)) +
+                                slideOutHorizontally(
+                                    animationSpec = tween(200)
+                                ) { (-it / 8) * dir })
+                    },
+                    contentAlignment = Alignment.TopStart,
+                    label = "main_tab",
+                ) { t ->
+                    when (t) {
+                        0 -> HomePage(serviceState, serviceUsable)
+                        1 -> AppsPage(serviceState, appList) { pkg, label ->
+                            configLabel = label
+                            configPkg = pkg
+                        }
+                        else -> AboutPage(serviceState)
+                    }
                 }
-                else -> AboutPage(serviceState)
             }
         }
+    }
+
+    autoResult?.let { r ->
+        AutoUpdateDialog(
+            result = r,
+            onDismiss = { autoResult = null },
+            onNeverAsk = {
+                UiSettings.setAutoUpdate(context, false)
+                autoResult = null
+            },
+            onUpdateNow = {
+                autoResult = null
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(updateUrlOf(r)))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+            },
+        )
     }
 
     
@@ -584,10 +777,46 @@ private fun SplashOverlay(onFinish: () -> Unit) {
 
 
 
+
+
+
+
+
+
+
+
+
+private suspend fun probeService(service: XposedService?): Boolean =
+    withContext(Dispatchers.IO) {
+        if (service == null) return@withContext false
+        try {
+            val p = service.getRemotePreferences(XpConfig.PREFS)
+            p.all
+            true
+        } catch (e: Throwable) {
+            val msg = (e.message ?: "") + e.javaClass.name
+            val dead = e is android.os.DeadObjectException ||
+                e is SecurityException ||
+                msg.contains("DeadObject", true) ||
+                msg.contains("dead", true) ||
+                msg.contains("Transaction failed", true) ||
+                msg.contains("RemoteException", true)
+            !dead
+        }
+    }
+
 @Composable
-fun HomePage(service: XposedService?) {
+fun HomePage(service: XposedService?, serviceUsable: Boolean? = null) {
     val context = LocalContext.current
-    val activated = service != null
+    
+    
+    
+    
+    val lspatch = UiSettings.lspatchActivate
+    val activated = lspatch || serviceUsable == true
+    
+    
+    val checking = !lspatch && serviceUsable == null
 
     val deviceInfo = remember {
         val androidId = try {
@@ -615,10 +844,11 @@ fun HomePage(service: XposedService?) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (activated)
-                    MaterialTheme.colorScheme.primaryContainer
-                else
-                    MaterialTheme.colorScheme.errorContainer
+                containerColor = when {
+                    activated -> MaterialTheme.colorScheme.primaryContainer
+                    checking -> MaterialTheme.colorScheme.surfaceVariant
+                    else -> MaterialTheme.colorScheme.errorContainer
+                }
             )
         ) {
             Row(
@@ -638,21 +868,30 @@ fun HomePage(service: XposedService?) {
                     Icon(
                         imageVector = if (activated) Icons.Filled.CheckCircle else Icons.Filled.Warning,
                         contentDescription = null,
-                        tint = if (activated)
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        else
-                            MaterialTheme.colorScheme.onErrorContainer
+                        tint = when {
+                            activated -> MaterialTheme.colorScheme.onPrimaryContainer
+                            checking -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> MaterialTheme.colorScheme.onErrorContainer
+                        }
                     )
                 }
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (activated) "模块已激活" else "模块未激活",
+                        when {
+                            activated -> "模块已激活"
+                            checking -> "正在检测激活状态…"
+                            else -> "模块未激活"
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        if (activated) "LSPosed 服务已连接，可在「应用」页管理作用域"
-                        else "请先在 LSPosed 管理器中启用模块",
+                        when {
+                            lspatch -> "使用 LSPatch 激活，作用域请在 LSPatch 里勾选"
+                            checking -> "正在确认框架服务是否可用"
+                            activated -> "LSPosed 服务已连接，可在「应用」页管理作用域"
+                            else -> "请先在 LSPosed 管理器中启用模块"
+                        },
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -694,7 +933,7 @@ fun HomePage(service: XposedService?) {
             Text("1. 在 LSPosed 管理器中启用本模块。", style = MaterialTheme.typography.bodySmall)
             Text("2. 在「应用」页为目标应用申请作用域。", style = MaterialTheme.typography.bodySmall)
             Text("3. 在「应用」页给已加入作用域的应用点「配置」，进入它的专属配置页。", style = MaterialTheme.typography.bodySmall)
-            Text("4. 在「防护功能」与「伪装」两个页签里勾选这个应用需要的功能。", style = MaterialTheme.typography.bodySmall)
+            Text("4. 在「防护功能」「权限伪装」「设备伪装」「设备模板」「其他功能」五个页签里勾选这个应用需要的功能，页签可左右滑动。", style = MaterialTheme.typography.bodySmall)
             Text("5. 每个应用的配置互相独立，互不干扰。", style = MaterialTheme.typography.bodySmall)
             Text("6. 修改配置后强制停止目标应用再打开即可生效。", style = MaterialTheme.typography.bodySmall)
         }
@@ -762,6 +1001,10 @@ private fun AppsPage(
     val reloading = appList.loading
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var scopeSet by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    
+    val lspatch = UiSettings.lspatchActivate
+    var scopeHint by remember { mutableStateOf<Pair<String, String>?>(null) }
     
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     
@@ -903,7 +1146,8 @@ private fun AppsPage(
                                 AppRow(
                                     app = app,
                                     isInScope = app.info.packageName in scopeSet,
-                                    enabled = service != null,
+                                    enabled = service != null || lspatch,
+                                    lspatch = lspatch,
                                     onAdd = {
                                         val pkg = app.info.packageName
                                         service?.requestScope(
@@ -941,7 +1185,14 @@ private fun AppsPage(
                                         }
                                     },
                                     onConfig = {
-                                        onOpenConfig(app.info.packageName, app.label)
+                                        val pkg = app.info.packageName
+                                        
+                                        
+                                        if (lspatch && pkg !in UiSettings.lspatchScopeNoticed) {
+                                            scopeHint = pkg to app.label
+                                        } else {
+                                            onOpenConfig(pkg, app.label)
+                                        }
                                     }
                                 )
                                 HorizontalDivider(
@@ -957,6 +1208,31 @@ private fun AppsPage(
         SnackbarHost(snackbarHost, Modifier.align(Alignment.BottomCenter))
     }
 
+    
+    scopeHint?.let { (pkg, label) ->
+        AlertDialog(
+            onDismissRequest = { scopeHint = null },
+            title = { Text("作用域需要在 LSPatch 里添加") },
+            text = {
+                Text(
+                    "$label\n$pkg\n\n${XpConfig.LSPATCH_SCOPE_HINT}\n\n\n"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    UiSettings.markLspatchScopeNoticed(context, pkg)
+                    scopeHint = null
+                    onOpenConfig(pkg, label)
+                }) { Text("知道了，继续配置") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    UiSettings.markLspatchScopeNoticed(context, pkg)
+                    scopeHint = null
+                }) { Text("关闭") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -964,6 +1240,7 @@ private fun AppRow(
     app: AppInfo,
     isInScope: Boolean,
     enabled: Boolean,
+    lspatch: Boolean = false,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
     onConfig: () -> Unit = {}
@@ -998,7 +1275,18 @@ private fun AppRow(
             )
         }
 
-        if (isInScope) {
+        
+        if (lspatch) {
+            androidx.compose.material3.OutlinedButton(onClick = onConfig, enabled = enabled) {
+                Icon(
+                    Icons.Filled.Lock,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                androidx.compose.foundation.layout.Spacer(Modifier.width(4.dp))
+                Text("配置")
+            }
+        } else if (isInScope) {
             androidx.compose.material3.FilledTonalButton(onClick = onRemove, enabled = enabled) {
                 Icon(
                     Icons.Filled.Close,
@@ -1158,7 +1446,7 @@ private fun PermissionConfigDialog(
                     val saved = cfg.strSet(grantKey)
                     Text(
                         if (saved.isEmpty()) {
-                            "上次保存：无（该应用回退到伪装页的规则）"
+                            "上次保存：无（该应用回退到「设备伪装」页的规则）"
                         } else {
                             "上次保存：${saved.size} 组 —— " +
                                     saved.mapNotNull { XpConfig.groupById(it)?.label }.joinToString("、")

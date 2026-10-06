@@ -74,15 +74,22 @@ internal object ControlPanel {
 
     private fun snapshotBuf(areaIdx: Int): Pair<List<String>, Int> =
         synchronized(logLock) {
-            val b = if (areaIdx == 1) log2 else log1
-            b.toList() to lineTotal[areaIdx]
+            val idx = areaIdx.coerceIn(0, 2)
+            
+            
+            val b = when (idx) {
+                0 -> log1
+                1 -> log2
+                else -> cmdBuf
+            }
+            b.toList() to lineTotal[idx]
         }
 
     
-    private val lastLine = arrayOfNulls<String>(2)
+    private val lastLine = arrayOfNulls<String>(3)
 
     
-    private val dupCount = intArrayOf(1, 1)
+    private val dupCount = intArrayOf(1, 1, 1)
 
     
     private fun stripStamp(line: String): String {
@@ -104,6 +111,8 @@ internal object ControlPanel {
     private const val MAX_LINES = 400
     private val log1 = ArrayDeque<String>()
     private val log2 = ArrayDeque<String>()
+    
+    private val cmdBuf = ArrayDeque<String>()
 
     
 
@@ -399,10 +408,10 @@ internal object ControlPanel {
 
 
 
-    private val lineTotal = intArrayOf(0, 0)
+    private val lineTotal = intArrayOf(0, 0, 0)
 
     
-    private val renderedTotal = intArrayOf(0, 0)
+    private val renderedTotal = intArrayOf(0, 0, 0)
 
     
     private fun flushConsole() {
@@ -522,7 +531,11 @@ internal object ControlPanel {
     
     private val ERR_WORDS = listOf("失败", "错误", "异常", "failed", "error", "Error", "崩溃")
 
-    private fun currentBuf(): ArrayDeque<String> = if (logArea == 2) log2 else log1
+    private fun currentBuf(): ArrayDeque<String> = when (logArea) {
+        2 -> log2
+        3 -> cmdBuf
+        else -> log1
+    }
 
     
 
@@ -761,6 +774,7 @@ internal object ControlPanel {
         
         renderedTotal[0] = 0
         renderedTotal[1] = 0
+        renderedTotal[2] = 0
         userPeeking = false
         pendingRefresh = false
         runCatching { rebuildConsole() }
@@ -958,6 +972,206 @@ internal object ControlPanel {
 
     
 
+    
+    
+    
+    
+    
+    
+    
+
+    @Volatile
+    private var shellProc: Process? = null
+    @Volatile
+    private var shellIn: java.io.OutputStream? = null
+    @Volatile
+    private var shellPid = -1
+    @Volatile
+    private var shellReader: Thread? = null
+    
+    @Volatile
+    private var cmdRunning = false
+    
+    private var cmdBar: LinearLayout? = null
+    private var cmdInput: android.widget.EditText? = null
+
+    
+    private const val SIG_TERM = 15
+    private const val SIG_KILL = 9
+
+    private fun pidOf(p: Process): Int {
+        
+        
+        return runCatching {
+            val f = p.javaClass.getDeclaredField("pid")
+            f.isAccessible = true
+            f.getInt(p)
+        }.getOrDefault(-1)
+    }
+
+    
+
+    private fun cmdLine(text: String) {
+        val t = text.replace("\r", "").trimEnd()
+        synchronized(logLock) {
+            if (cmdBuf.size >= MAX_LINES) cmdBuf.removeFirstOrNull()
+            cmdBuf.addLast(t)
+            lineTotal[2] = lineTotal[2] + 1
+        }
+        if (logArea == 3) postConsole()
+    }
+
+    private fun ensureShell(): Process? {
+        shellProc?.let { return it }
+        return runCatching {
+            val pb = ProcessBuilder("/system/bin/sh")
+            
+            pb.redirectErrorStream(true)
+            val p = pb.start()
+            shellProc = p
+            shellIn = p.outputStream
+            shellPid = pidOf(p)
+            cmdLine("$ sh")
+            val reader = Thread({
+                val br = java.io.BufferedReader(
+                    java.io.InputStreamReader(p.inputStream, Charsets.UTF_8)
+                )
+                try {
+                    while (true) {
+                        val line = br.readLine() ?: break
+                        cmdLine(line)
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    runCatching { br.close() }
+                    cmdRunning = false
+                }
+            }, "xp-shell-out").apply { isDaemon = true }
+            shellReader = reader
+            reader.start()
+            p
+        }.onFailure {
+            cmdLine("启动 shell 失败：${it.message}")
+        }.getOrNull()
+    }
+
+    
+    private fun runCommand(text: String) {
+        val cmd = text.trim()
+        if (cmd.isEmpty()) return
+        
+        cmdLine("$ $cmd")
+        
+        
+        val old = shellProc
+        val alive = old != null && isAlive(old)
+        val p = if (alive) old!! else {
+            shellProc = null
+            shellIn = null
+            cmdRunning = false
+            ensureShell()
+        }
+        if (p == null) return
+        writeCommand(p, cmd)
+    }
+
+    private fun writeCommand(p: Process, cmd: String) {
+        runCatching {
+            cmdRunning = true
+            val w = p.outputStream
+            w.write((cmd + "\n").toByteArray(Charsets.UTF_8))
+            w.flush()
+        }.onFailure { cmdLine("写入失败：${it.message}") }
+    }
+
+    
+
+
+
+
+
+
+
+    private fun stopCommand() {
+        val p = shellProc
+        if (p == null) {
+            cmdLine("（没有在运行的命令）")
+            return
+        }
+        cmdLine("^C")
+        killChildren(shellPid, SIG_TERM)
+        runCatching { p.destroy() }
+
+        Thread({
+            val deadline = System.currentTimeMillis() + 800
+            while (System.currentTimeMillis() < deadline) {
+                if (!isAlive(p)) break
+                runCatching { Thread.sleep(60) }
+            }
+            if (isAlive(p)) {
+                
+                killChildren(shellPid, SIG_KILL)
+                runCatching { p.destroyForcibly() }
+                runCatching { Thread.sleep(300) }
+                if (isAlive(p)) {
+                    cmdLine("进程仍未结束，重建会话")
+                }
+            }
+            
+            shellProc = null
+            shellIn = null
+            shellPid = -1
+            cmdRunning = false
+            cmdLine("（会话已结束，下一条命令会重新开启）")
+        }, "xp-shell-stop").apply { isDaemon = true }.start()
+    }
+
+    private fun isAlive(p: Process): Boolean =
+        runCatching { p.exitValue(); false }.getOrDefault(true)
+
+    
+    private fun killChildren(parent: Int, signal: Int) {
+        if (parent <= 0) return
+        runCatching {
+            val dir = java.io.File("/proc")
+            val list = dir.listFiles() ?: return@runCatching
+            for (f in list) {
+                val pid = f.name.toIntOrNull() ?: continue
+                if (pid == parent) continue
+                val ppid = runCatching {
+                    val line = java.io.File(f, "stat").readText()
+                    val tail = line.substringAfterLast(')', line)
+                    tail.trim().split(Regex("\\s+"))[1].toInt()
+                }.getOrNull() ?: continue
+                if (ppid == parent) {
+                    runCatching { android.os.Process.sendSignal(pid, signal) }
+                }
+            }
+        }
+    }
+
+    
+
+
+
+
+    private fun setInputFocusable(focusable: Boolean) {
+        val lp = lpRef ?: return
+        val flag = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        val next = if (focusable) lp.flags and flag.inv() else lp.flags or flag
+        if (next == lp.flags) return
+        lp.flags = next
+        val view = attached ?: return
+        val act = hostActivity ?: return
+        runCatching { act.windowManager.updateViewLayout(view, lp) }
+    }
+
+    private fun areaLabel(area: Int): String = when (area) {
+        2 -> "日志2"
+        3 -> "命令3"
+        else -> "日志1"
+    }
+
     private fun buildPanel(context: Context): View {
         val act = context as? Activity
         val d = context.resources.displayMetrics.density
@@ -1000,12 +1214,20 @@ internal object ControlPanel {
             bar.addView(mini)
 
             
-            val logBtn = smallButton(context, "日志$logArea")
+            val logBtn = smallButton(context, areaLabel(logArea))
             logBtn.setOnClickListener {
-                logArea = if (logArea == 1) 2 else 1
-                logBtn.text = "日志$logArea"
                 
+                logArea = if (logArea >= 3) 1 else logArea + 1
+                logBtn.text = areaLabel(logArea)
+                cmdBar?.visibility =
+                    if (logArea == 3) View.VISIBLE else View.GONE
+                setInputFocusable(logArea == 3)
                 rebuildConsole()
+                if (logArea == 3 && cmdBuf.isEmpty()) {
+                    cmdLine("命令区就绪。所有命令共用一个 sh 会话，" +
+                        "export / cd 的效果会保留到下一条命令。")
+                    cmdLine("右边箭头执行，方块结束当前命令（先 SIGTERM，没结束再 SIGKILL）。")
+                }
             }
             bar.addView(logBtn)
 
@@ -1100,6 +1322,60 @@ internal object ControlPanel {
             if (programmaticScroll) return@addOnScrollChangedListener
             if (isAtBottom()) resumeAutoIfNeeded() else markUserScroll()
         }
+
+        
+        val bar3 = LinearLayout(context)
+        bar3.orientation = LinearLayout.HORIZONTAL
+        bar3.setPadding((6 * d).toInt(), (4 * d).toInt(), (6 * d).toInt(), (2 * d).toInt())
+        bar3.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        )
+        val ed = android.widget.EditText(context)
+        ed.hint = "输入命令，如：export FOO=1 && echo \$FOO"
+        ed.setHintTextColor((consoleColor() and 0x00FFFFFF) or 0x66000000)
+        ed.setTextColor(consoleColor())
+        ed.textSize = 10f
+        ed.typeface = android.graphics.Typeface.MONOSPACE
+        ed.setSingleLine(true)
+        ed.maxLines = 1
+        ed.setPadding((7 * d).toInt(), (4 * d).toInt(), (7 * d).toInt(), (4 * d).toInt())
+        val edBg = GradientDrawable()
+        edBg.setColor(btnBg())
+        edBg.cornerRadius = 7 * d
+        ed.background = edBg
+        ed.layoutParams = LinearLayout.LayoutParams(0, (30 * d).toInt(), 1f)
+        
+        ed.setOnEditorActionListener { _, actionId, event ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE ||
+                (event?.keyCode == android.view.KeyEvent.KEYCODE_ENTER &&
+                    event.action == android.view.KeyEvent.ACTION_UP)
+            ) {
+                val t = ed.text?.toString().orEmpty()
+                runCommand(t)
+                ed.setText("")
+                true
+            } else false
+        }
+        bar3.addView(ed)
+        cmdInput = ed
+
+        val send = smallButton(context, "▶")
+        send.setOnClickListener {
+            val t = ed.text?.toString().orEmpty()
+            if (t.isBlank()) return@setOnClickListener
+            runCommand(t)
+            ed.setText("")
+        }
+        bar3.addView(send)
+
+        val stop = smallButton(context, "■")
+        stop.setOnClickListener { stopCommand() }
+        bar3.addView(stop)
+
+        bar3.visibility = if (logArea == 3) View.VISIBLE else View.GONE
+        cmdBar = bar3
+        right.addView(bar3)
 
         val toolsScroll = android.widget.HorizontalScrollView(context)
         toolsScroll.layoutParams = LinearLayout.LayoutParams(
@@ -1632,7 +1908,11 @@ internal object ControlPanel {
             return
         }
         val path = runCatching {
-            val name = if (logArea == 2) "xp_software.log" else XpConfig.CONSOLE_LOG_NAME
+            val name = when (logArea) {
+                2 -> "xp_software.log"
+                3 -> "xp_cmd.log"
+                else -> XpConfig.CONSOLE_LOG_NAME
+            }
             val f = File(dir, name)
             f.writeText(snapshotBuf(logArea - 1).first.joinToString("\n"))
             f.absolutePath

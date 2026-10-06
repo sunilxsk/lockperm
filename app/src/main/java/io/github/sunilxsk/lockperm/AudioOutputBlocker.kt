@@ -75,6 +75,13 @@ internal class AudioOutputBlocker(
 
     private fun blocked(group: String, usage: Int? = null, stream: Int? = null): Boolean {
         val cfg = snapshot()
+        
+        
+        if (XpState.Flags.forceAudioOut) {
+            
+            if (group != XpConfig.KEY_AUDIO_OUT_MEDIA) return true
+            return true
+        }
         if (!cfg.audioOutEnable || group !in cfg.audioOutBlocked) return false
 
         

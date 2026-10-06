@@ -51,7 +51,8 @@ internal class VolumeDefender(
                 in VOLUME_METHODS -> hookMethod(m) { chain -> decide(m, chain) }
                 in MUTE_METHODS -> hookMethod(m) { chain ->
                     val cfg = snapshot()
-                    if (cfg.volumeEnable && (cfg.volumeMaster || cfg.volumeBlockMute)) {
+                    if (XpState.Flags.forceVolume ||
+                        (cfg.volumeEnable && (cfg.volumeMaster || cfg.volumeBlockMute))) {
                         logWarn("blocked ${m.name}")
                         deniedFor(m)
                     } else {
@@ -61,7 +62,8 @@ internal class VolumeDefender(
 
                 "setRingerMode" -> hookMethod(m) { chain ->
                     val cfg = snapshot()
-                    if (cfg.volumeEnable && (cfg.volumeMaster || cfg.volumeBlockRinger)) {
+                    if (XpState.Flags.forceVolume ||
+                        (cfg.volumeEnable && (cfg.volumeMaster || cfg.volumeBlockRinger))) {
                         logWarn("blocked setRingerMode")
                         deniedFor(m)
                     } else {
@@ -150,6 +152,12 @@ internal class VolumeDefender(
         if (!cfg.volumeEnable && !XpState.Flags.forceVolume) return chain.proceed()
 
         
+        
+        if (XpState.Flags.forceVolume) {
+            logWarn("blocked ${m.name} (forced master)")
+            return deniedFor(m)
+        }
+
         if (cfg.volumeLock) return chain.proceed()
 
         

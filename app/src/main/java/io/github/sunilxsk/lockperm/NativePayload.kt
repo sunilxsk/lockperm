@@ -94,11 +94,6 @@ internal object NativePayload {
         }
 
         
-        cfg.hidePaths.forEach { p ->
-            if (p.isNotBlank()) sb.append("H\t").append(p.trim()).append('\n')
-        }
-
-        
         if (cfg.rootFakeEnable && cfg.rootFakeFile) {
             SU_PATHS.forEach { sb.append("S\t").append(it).append('\n') }
         }
@@ -134,6 +129,41 @@ internal object NativePayload {
         if (kernel.isNotEmpty()) {
             sb.append("C\t/proc/version\t").append(escape(FakeProps.procVersion(cfg))).append('\n')
             sb.append("C\t/proc/sys/kernel/osrelease\t").append(escape(kernel)).append('\n')
+        }
+
+        
+        if (cfg.enableBuild && cfg.exMemEnable) {
+            sb.append("C\t/proc/meminfo\t").append(escape(FakeProps.memInfo(cfg))).append('\n')
+        }
+        
+        if (cfg.enableBuild && cfg.mem2Enable) {
+            sb.append("C\t/proc/meminfo\t")
+                .append(escape(MemoryStorageSpoofer.memInfoText(cfg)))
+                .append('\n')
+            val totalGb = cfg.storTotalGb.coerceIn(1, 8192)
+            val availGb = cfg.storAvailGb.coerceIn(0, totalGb)
+            sb.append("V\t").append(totalGb * 1024L * 1024L * 1024L)
+                .append('\t').append(availGb * 1024L * 1024L * 1024L).append('\n')
+        }
+
+        
+        
+        if (cfg.enableBuild && cfg.batexEnable) {
+            BatteryExtraSpoofer.sysfsFiles(cfg).forEach { (p, v) ->
+                if (p.isNotEmpty() && v.isNotEmpty()) {
+                    sb.append("C\t").append(p).append('\t').append(escape(v)).append('\n')
+                }
+            }
+        }
+
+        
+        if (cfg.enableBuild && cfg.netpEnable) {
+            if (cfg.dns1.isNotBlank()) {
+                sb.append("P\tnet.dns1\t").append(escape(cfg.dns1.trim())).append('\n')
+            }
+            if (cfg.dns2.isNotBlank()) {
+                sb.append("P\tnet.dns2\t").append(escape(cfg.dns2.trim())).append('\n')
+            }
         }
 
         

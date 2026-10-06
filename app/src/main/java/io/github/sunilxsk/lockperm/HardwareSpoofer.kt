@@ -45,6 +45,12 @@ internal class HardwareSpoofer(
             hookBatteryManager()
             hookIntentExtras()
         }
+        
+        
+        if (cfg.exMemEnable) {
+            FakeFiles.meminfo = FakeProps.memInfo(cfg)
+            hookMemoryInfo()
+        }
         if (cfg.exGpu.isNotEmpty()) {
             gpuName = cfg.exGpu
             gpuVendor = cfg.exGpuVendor.ifEmpty { XpConfig.gpuVendor(cfg.exGpu) }
@@ -242,6 +248,53 @@ internal class HardwareSpoofer(
                     tempId -> if (cfg.exTempEnable) cfg.exTemp.coerceIn(0, 120) * 10 else chain.proceed()
                     else -> chain.proceed()
                 }
+            }
+        }
+    }
+
+    
+
+
+
+
+
+    private fun hookMemoryInfo() {
+        val am = loadClassAnywhere("android.app.ActivityManager") ?: return
+        val mi = runCatching { Class.forName("android.app.ActivityManager\$MemoryInfo") }.getOrNull()
+            ?: return
+        val field = runCatching { mi.getDeclaredField("totalMem") }.getOrNull() ?: return
+        field.isAccessible = true
+        am.declaredMethods.filter {
+            it.name == "getMemoryInfo" && it.parameterTypes.size == 1 &&
+                    it.parameterTypes[0].name == mi.name
+        }.forEach { m ->
+            hookMethod(m) { chain ->
+                val r = chain.proceed()
+                runCatching {
+                    val cfg = snapshot()
+                    if (!cfg.exMemEnable) return@runCatching
+                    val self = chain.getArg(0) ?: return@runCatching
+                    clearFinal(field)
+                    field.setLong(self, cfg.exMemMb.coerceIn(256, 65536).toLong() * 1024L * 1024L)
+                }
+                r
+            }
+        }
+        
+        
+        logInfo("memory info hooked")
+    }
+
+    private fun clearFinal(f: java.lang.reflect.Field) {
+        runCatching {
+            val m = java.lang.reflect.Field::class.java.getDeclaredField("modifiers")
+            m.isAccessible = true
+            m.setInt(f, f.modifiers and java.lang.reflect.Modifier.FINAL.inv())
+        }.onFailure {
+            runCatching {
+                val m = java.lang.reflect.Field::class.java.getDeclaredField("accessFlags")
+                m.isAccessible = true
+                m.setInt(f, f.modifiers and java.lang.reflect.Modifier.FINAL.inv())
             }
         }
     }

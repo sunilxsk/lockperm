@@ -8,6 +8,7 @@ import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import io.github.libxposed.api.XposedModule
+import java.lang.reflect.Method
 import java.util.Collections
 import java.util.WeakHashMap
 
@@ -32,13 +33,29 @@ internal class AccessibilityDefender(
 ) : HookSupport(module, prefs, classLoader) {
 
     fun install() {
+        val cfg0 = snapshot()
+        
+        
+        
+        
+        
         hookServiceLifecycle()
-        installCapabilityHooks()
-        hookAccessibilityManager()
-        hookEventDelivery()
+        if (cfg0.accScope != XpConfig.ACC_SCOPE_CLOSE_ONLY) {
+            installCapabilityHooks()
+            hookAccessibilityManager()
+            hookEventDelivery()
+            hookServiceInfoIdentity()
+            hookNodeProvider()
+            hookInteractionClient()
+            hookManagerBinder()
+            hookNameAndSettingsBypass()
+        }
         startWatchdog()
         val cfg = snapshot()
-        logInfo("accessibility defender installed (enable=${cfg.accEnable}, mode=${cfg.accMode}, scope=${cfg.accScope})")
+        logInfo(
+            "accessibility defender installed (enable=${cfg.accEnable}, mode=${cfg.accMode}, " +
+                "scope=${cfg.accScope}, fake=${cfg.accFakeMode}${if (fakeMode()) " 伪装成功" else " 默认"})"
+        )
     }
 
     
@@ -48,6 +65,100 @@ internal class AccessibilityDefender(
 
 
 
+    
+
+
+
+
+
+
+    private fun statusOff(): Boolean {
+        val cfg = snapshot()
+        if (cfg.accStatusSpoof) return !cfg.accStatusValue
+        
+        if (fakeMode()) return false
+        return shouldDisableContinuously() || XpState.Flags.forceAccessibility
+    }
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private fun blankNode(): Any? =
+        runCatching { android.view.accessibility.AccessibilityNodeInfo.obtain() }.getOrNull()
+
+    
+
+
+
+
+
+
+
+    private fun deniedNodeFor(m: Method): Any? {
+        val t = m.returnType
+        return when {
+            t == android.view.accessibility.AccessibilityNodeInfo::class.java -> blankNode()
+            t == android.os.Bundle::class.java -> android.os.Bundle()
+            List::class.java.isAssignableFrom(t) ||
+                java.util.Collection::class.java.isAssignableFrom(t) ->
+                java.util.ArrayList<Any>()
+            t == String::class.java || t == CharSequence::class.java -> ""
+            else -> deniedFor(m)
+        }
+    }
+
+    
+    private fun fakeMode(): Boolean =
+        snapshot().accFakeMode == XpConfig.ACC_MODE_FAKE_SUCCESS
+
+    
+
+
+
+
+
+
+
+
+    private fun successFor(m: Method): Any? {
+        val t = m.returnType
+        return when {
+            t == android.view.accessibility.AccessibilityNodeInfo::class.java -> blankNode()
+            t == java.lang.Boolean.TYPE -> true
+            t == java.lang.Integer.TYPE -> 1
+            t == java.lang.Long.TYPE -> 1L
+            t == java.lang.Float.TYPE -> 1f
+            t == java.lang.Double.TYPE -> 1.0
+            t == java.lang.Short.TYPE -> 1.toShort()
+            t == java.lang.Byte.TYPE -> 1.toByte()
+            t == java.lang.Character.TYPE -> 0.toChar()
+            t == String::class.java -> ""
+            
+            
+            
+            t == CharSequence::class.java -> ""
+            t == Void.TYPE -> null
+            t.isArray -> runCatching { java.lang.reflect.Array.newInstance(t.componentType, 0) }
+                .getOrNull()
+            List::class.java.isAssignableFrom(t) ||
+                java.util.Collection::class.java.isAssignableFrom(t) ->
+                java.util.ArrayList<Any>()
+            android.util.SparseArray::class.java.isAssignableFrom(t) -> android.util.SparseArray<Any>()
+            else -> null
+        }
+    }
+
     private fun hookAccessibilityManager() {
         val am = frameworkCls("android.view.accessibility.AccessibilityManager") ?: return
 
@@ -56,8 +167,18 @@ internal class AccessibilityDefender(
             hookMethod(m) { chain ->
                 val cfg = snapshot()
                 if (cfg.accStatusSpoof) {
+                    if (!cfg.accStatusValue) forceDisabledFlags(chain.getThisObject())
                     cfg.accStatusValue
+                } else if (fakeMode()) {
+                    
+                    
+                    
+                    
+                    
+                    true
                 } else if (shouldDisableContinuously() || XpState.Flags.forceAccessibility) {
+                    
+                    forceDisabledFlags(chain.getThisObject())
                     false
                 } else {
                     chain.proceed()
@@ -67,21 +188,93 @@ internal class AccessibilityDefender(
         am.declaredMethods.filter { it.name == "isTouchExplorationEnabled" }.forEach { m ->
             hookMethod(m) { chain ->
                 val cfg = snapshot()
-                if (cfg.accStatusSpoof && !cfg.accStatusValue) false else chain.proceed()
+                if (cfg.accStatusSpoof && !cfg.accStatusValue) {
+                    forceDisabledFlags(chain.getThisObject())
+                    false
+                } else {
+                    chain.proceed()
+                }
             }
         }
         am.declaredMethods.filter { it.name == "getEnabledAccessibilityServiceList" }.forEach { m ->
             hookMethod(m) { chain ->
-                val cfg = snapshot()
                 val r = chain.proceed()
-                val off = if (cfg.accStatusSpoof) {
-                    !cfg.accStatusValue
-                } else {
-                    shouldDisableContinuously() || XpState.Flags.forceAccessibility
-                }
-                if (off) java.util.Collections.emptyList<Any>() else r
+                if (statusOff()) java.util.ArrayList<Any>() else r
             }
         }
+
+        
+        
+        
+        am.declaredMethods.filter {
+            it.name == "getInstalledAccessibilityServiceList" ||
+                it.name == "getAccessibilityServiceList"
+        }.forEach { m ->
+            hookMethod(m) { chain ->
+                val r = chain.proceed()
+                if (statusOff()) java.util.ArrayList<Any>() else r
+            }
+        }
+
+        
+        am.declaredMethods.filter {
+            it.name == "isAccessibilityButtonSupported" ||
+                it.name == "isRequestFromAccessibilityTool"
+        }.forEach { m ->
+            hookMethod(m) { chain ->
+                if (statusOff()) false else chain.proceed()
+            }
+        }
+        
+        
+        am.declaredMethods.filter {
+            it.name == "isHighContrastTextEnabled" || it.name == "isAudioDescriptionRequested"
+        }.forEach { m ->
+            hookMethod(m) { chain ->
+                if (statusOff()) false else chain.proceed()
+            }
+        }
+        
+        
+        am.declaredMethods.filter { it.name == "getRecommendedTimeoutMillis" }.forEach { m ->
+            hookMethod(m) { chain ->
+                if (!statusOff()) return@hookMethod chain.proceed()
+                val original = chain.args.firstOrNull { it is Int } as? Int
+                if (original != null) original else orProceed(chain, null)
+            }
+        }
+        
+        am.declaredMethods.filter {
+            it.name == "getAccessibilityFocusColor" || it.name == "getAccessibilityFocusStrokeWidth"
+        }.forEach { m ->
+            hookMethod(m) { chain ->
+                if (statusOff()) 0 else chain.proceed()
+            }
+        }
+        
+        
+        am.declaredMethods.filter {
+            it.name == "sendAccessibilityEvent" || it.name == "interrupt"
+        }.forEach { m ->
+            hookMethod(m) { chain ->
+                if (statusOff()) null else chain.proceed()
+            }
+        }
+        
+        
+        runCatching {
+            am.declaredMethods.filter {
+                it.name == "setState" || it.name == "setStateLocked" || it.name == "setEnabled"
+            }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val r = chain.proceed()
+                    if (statusOff()) forceDisabledFlags(chain.getThisObject())
+                    r
+                }
+            }
+        }
+        
+        
 
         
         val sg = frameworkCls("android.provider.Settings\$Secure")
@@ -89,20 +282,62 @@ internal class AccessibilityDefender(
             runCatching {
                 sg.declaredMethods.filter { it.name == "getString" }.forEach { m ->
                     hookMethod(m) { chain ->
-                        val cfg = snapshot()
                         val k = chain.getArg(1) as? String
-                        if (cfg.accStatusSpoof && !cfg.accStatusValue &&
-                            k != null && k.contains("accessibility")
-                        ) {
-                            ""
-                        } else {
-                            chain.proceed()
-                        }
+                        if (statusOff() && k != null && isA11ySettingKey(k)) "" else chain.proceed()
+                    }
+                }
+                
+                
+                sg.declaredMethods.filter { it.name == "getStringForUser" }.forEach { m ->
+                    hookMethod(m) { chain ->
+                        val k = chain.getArg(1) as? String
+                        if (statusOff() && k != null && isA11ySettingKey(k)) "" else chain.proceed()
+                    }
+                }
+                
+                
+                sg.declaredMethods.filter {
+                    it.name == "getInt" || it.name == "getIntForUser"
+                }.forEach { m ->
+                    hookMethod(m) { chain ->
+                        val k = chain.args.filterIsInstance<String>().firstOrNull()
+                        if (statusOff() && k != null && isA11ySettingKey(k)) 0 else chain.proceed()
                     }
                 }
             }
         }
         logInfo("accessibility manager hook installed")
+    }
+
+    
+
+    private fun isA11ySettingKey(k: String): Boolean {
+        val s = k.lowercase()
+        return s.contains("accessibility") || s.contains("touch_exploration") ||
+            s.contains("enabled_accessibility")
+    }
+
+    
+
+
+
+
+    private fun forceDisabledFlags(thiz: Any?) {
+        val o = thiz ?: return
+        var c: Class<*>? = o.javaClass
+        while (c != null && c != Any::class.java) {
+            for (name in listOf(
+                "mIsEnabled", "mIsTouchExplorationEnabled",
+                "mIsHighTextContrastEnabled", "mIsAudioDescriptionByDefaultEnabled",
+            )) {
+                runCatching {
+                    val f = c!!.getDeclaredField(name)
+                    f.isAccessible = true
+                    if (f.type == java.lang.Boolean.TYPE) f.setBoolean(o, false)
+                }
+            }
+            c = c.superclass
+        }
     }
 
     
@@ -140,6 +375,24 @@ internal class AccessibilityDefender(
             logWarn("accessibility: AccessibilityService class not found")
             return
         }
+
+        
+        
+        
+        
+        runCatching {
+            svc.declaredConstructors.forEach { c ->
+                hookCtor(c) { chain ->
+                    val r = chain.proceed()
+                    val service = chain.getThisObject() as? AccessibilityService
+                    if (service != null) {
+                        Instances.add(service)
+                        if (shouldDisableContinuously()) disableNow(service)
+                    }
+                    r
+                }
+            }
+        }.onFailure { logWarn("accessibility: ctor hook skipped: ${it.message}") }
 
         
         
@@ -244,10 +497,15 @@ internal class AccessibilityDefender(
 
     
     private fun shouldDisableContinuously(): Boolean {
+        
+        
+        
+        
         if (XpState.Flags.forceAccessibility) return true
+
         val cfg = snapshot()
         
-        if (cfg.accScope == 2) return false
+        if (cfg.accScope == XpConfig.ACC_SCOPE_HOOK_ONLY) return false
         
         if (oneShotPending()) return true
         
@@ -255,21 +513,40 @@ internal class AccessibilityDefender(
     }
 
     private fun shouldBlockEvent(event: AccessibilityEvent?): Boolean {
+        
+        
+        if (fakeMode()) return false
+        
+        if (snapshot().accScope == XpConfig.ACC_SCOPE_CLOSE_ONLY) return false
         val cfg = snapshot()
         val force = XpState.Flags.forceAccessibility
         
         if (XpState.Flags.forceAccessibilityAll) return true
         if (!force && !cfg.accEnable) return false
         
-        if (!force && cfg.accScope == 0) return false
 
         val type = event?.eventType ?: return false
         return when {
+            
             cfg.accCapNotify && type == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> true
+            cfg.accCapNotify && type == TYPE_ANNOUNCEMENT -> true
+
+            
             cfg.accCapWindow && type == TYPE_WINDOW_STATE_CHANGED -> true
             cfg.accCapWindow && type == TYPE_WINDOW_CONTENT_CHANGED -> true
             cfg.accCapWindow && type == TYPE_WINDOWS_CHANGED -> true
+            cfg.accCapWindow && type == TYPE_VIEW_SCROLLED -> true
+            cfg.accCapWindow && type == TYPE_VIEW_ACCESSIBILITY_FOCUSED -> true
+            cfg.accCapWindow && type == TYPE_GESTURE_DETECTION_START -> true
+            cfg.accCapWindow && type == TYPE_GESTURE_DETECTION_END -> true
+            cfg.accCapWindow && type == TYPE_TOUCH_INTERACTION_START -> true
+            cfg.accCapWindow && type == TYPE_TOUCH_INTERACTION_END -> true
+
+            
             cfg.accCapInput && type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> true
+            cfg.accCapInput && type == TYPE_VIEW_TEXT_SELECTION_CHANGED -> true
+            cfg.accCapInput && type == TYPE_VIEW_TEXT_TRAVERSED -> true
+            cfg.accCapInput && type == TYPE_VIEW_FOCUSED -> true
             else -> false
         }
     }
@@ -297,7 +574,7 @@ internal class AccessibilityDefender(
         val winInfo = frameworkCls("android.view.accessibility.AccessibilityWindowInfo")
 
         
-        blockOn(node, SCREEN_NODE_METHODS, capScreen, "AccessibilityNodeInfo")
+        blockOn(node, SCREEN_NODE_METHODS, capScreen, "AccessibilityNodeInfo", dataClass = true)
         blockOn(svc, setOf("getRootInActiveWindow", "findFocus"), capScreen, "AccessibilityService")
         blockOn(
             svc,
@@ -306,14 +583,25 @@ internal class AccessibilityDefender(
             "AccessibilityService",
         )
         
-        runCatching {
-            val m = node.getDeclaredMethod("getBoundsInScreen", Rect::class.java)
-            hookMethod(m) { chain ->
-                if (active() && breakageEnabled() && capScreen()) {
-                    (chain.getArg(0) as? Rect)?.setEmpty()
-                    null
-                } else {
-                    chain.proceed()
+        
+        
+        
+        listOf("getBoundsInScreen", "getBoundsInWindow", "getRegionInScreen").forEach { n ->
+            runCatching {
+                node.declaredMethods.filter { it.name == n }.forEach { m ->
+                    hookMethod(m) { chain ->
+                        if (active() && breakageEnabled() && capScreen()) {
+                            val a = chain.getArg(0)
+                            if (a is Rect) {
+                                a.setEmpty()
+                            } else if (a != null) {
+                                runCatching { a.javaClass.getMethod("setEmpty").invoke(a) }
+                            }
+                            null
+                        } else {
+                            chain.proceed()
+                        }
+                    }
                 }
             }
         }
@@ -330,25 +618,29 @@ internal class AccessibilityDefender(
         
         
         
-        blockOn(event, setOf("getText"), { capNotify() || capInput() }, "AccessibilityEvent")
-        blockOn(record, setOf("getText"), { capNotify() || capInput() }, "AccessibilityRecord")
-        blockOn(event, NOTIFY_METHODS - "getText", capNotify, "AccessibilityEvent")
-        blockOn(record, NOTIFY_METHODS - "getText", capNotify, "AccessibilityRecord")
+        blockOn(event, setOf("getText"), { capNotify() || capInput() }, "AccessibilityEvent", dataClass = true)
+        blockOn(record, setOf("getText"), { capNotify() || capInput() }, "AccessibilityRecord", dataClass = true)
+        blockOn(event, NOTIFY_METHODS - "getText", capNotify, "AccessibilityEvent", dataClass = true)
+        blockOn(record, NOTIFY_METHODS - "getText", capNotify, "AccessibilityRecord", dataClass = true)
 
         
-        blockOn(event, EVENT_WINDOW_METHODS, capWindow, "AccessibilityEvent")
-        blockOn(record, RECORD_WINDOW_METHODS, capWindow, "AccessibilityRecord")
+        blockOn(event, EVENT_WINDOW_METHODS, capWindow, "AccessibilityEvent", dataClass = true)
+        blockOn(record, RECORD_WINDOW_METHODS, capWindow, "AccessibilityRecord", dataClass = true)
         blockOn(svc, setOf("getWindows", "getWindowsOnAllDisplays"), capWindow, "AccessibilityService")
-        blockOn(winInfo, WINDOW_METHODS, capWindow, "AccessibilityWindowInfo")
+        blockOn(winInfo, WINDOW_METHODS, capWindow, "AccessibilityWindowInfo", dataClass = true)
 
         
-        blockOn(event, INPUT_METHODS - "getText", capInput, "AccessibilityEvent")
-        blockOn(record, INPUT_METHODS - "getText", capInput, "AccessibilityRecord")
+        blockOn(event, INPUT_METHODS - "getText", capInput, "AccessibilityEvent", dataClass = true)
+        blockOn(record, INPUT_METHODS - "getText", capInput, "AccessibilityRecord", dataClass = true)
 
         
         
         
         
+        
+        
+        blockOn(svc, OVERLAY_SERVICE_METHODS, capOverlay, "AccessibilityService")
+
         hookOverlayCreation()
         if (capOverlay()) startOverlaySweeper()
 
@@ -372,32 +664,234 @@ internal class AccessibilityDefender(
         
         blockOn(
             frameworkCls("android.accessibilityservice.AccessibilityService\$MagnificationController"),
-            setOf("setMagnificationScale", "setCenter", "reset"),
+            MAGNIFICATION_METHODS,
             capControl,
             "MagnificationController",
         )
         blockOn(
             frameworkCls("android.accessibilityservice.AccessibilityService\$SoftKeyboardController"),
-            setOf("setShowSoftKeyboard", "showSoftKeyboard", "setSoftKeyboardShowMode"),
+            SOFT_KEYBOARD_METHODS,
             capControl,
             "SoftKeyboardController",
         )
         blockOn(
             frameworkCls("android.accessibilityservice.FingerprintGestureController"),
-            setOf("dispatchFingerprintGesture"),
+            FINGERPRINT_METHODS,
             capControl,
             "FingerprintGestureController",
         )
         blockOn(
             frameworkCls("android.accessibilityservice.AccessibilityButtonController"),
-            setOf("isAccessibilityButtonAvailable"),
+            BUTTON_CONTROLLER_METHODS,
             capControl,
             "AccessibilityButtonController",
         )
-        
-        
-        
+        blockOn(
+            frameworkCls("android.accessibilityservice.BrailleDisplayController"),
+            BRAILLE_METHODS,
+            capControl,
+            "BrailleDisplayController",
+        )
+
+
+
         hookSetServiceInfo(svc)
+    }
+
+    
+    
+    
+    
+    
+
+    
+
+
+
+
+    private fun hookServiceInfoIdentity() {
+        val info = frameworkCls("android.accessibilityservice.AccessibilityServiceInfo") ?: return
+        val off: () -> Boolean = { active() && breakageEnabled() && capOn(snapshot().accCapScreen) }
+        info.declaredMethods.filter {
+            it.name == "getId" || it.name == "getResolveInfo" ||
+                it.name == "getComponentName" || it.name == "getSettingsActivityName"
+        }.forEach { m ->
+            hookMethod(m) { chain ->
+                if (off()) deniedFor(m) else chain.proceed()
+            }
+        }
+        info.declaredMethods.filter {
+            it.name == "getCapabilities" || it.name == "getEventTypes" ||
+                it.name == "getFeedbackType" || it.name == "getFlags"
+        }.forEach { m ->
+            hookMethod(m) { chain ->
+                if (off()) 0 else chain.proceed()
+            }
+        }
+        runCatching {
+            info.declaredMethods.filter { it.name == "getPackageNames" }.forEach { m ->
+                hookMethod(m) { chain ->
+                    if (off()) emptyArray<String>() else chain.proceed()
+                }
+            }
+        }
+        logInfo("accessibility service info hook installed")
+    }
+
+    
+
+
+
+    private fun hookNodeProvider() {
+        val p = frameworkCls("android.view.accessibility.AccessibilityNodeProvider") ?: return
+        val off: () -> Boolean = { active() && breakageEnabled() && capOn(snapshot().accCapScreen) }
+        p.declaredMethods.filter {
+            it.name == "createAccessibilityNodeInfo" ||
+                it.name == "findAccessibilityNodeInfosByText" ||
+                it.name == "findFocus"
+        }.forEach { m ->
+            hookMethod(m) { chain ->
+                
+                
+                if (off()) {
+                    if (fakeMode()) successFor(m) else deniedNodeFor(m)
+                } else {
+                    chain.proceed()
+                }
+            }
+        }
+        p.declaredMethods.filter { it.name == "performAction" }.forEach { m ->
+            hookMethod(m) { chain ->
+                if (off()) false else chain.proceed()
+            }
+        }
+        logInfo("accessibility node provider hook installed")
+    }
+
+    
+
+
+
+
+    private fun hookInteractionClient() {
+        val c = frameworkCls("android.view.accessibility.AccessibilityInteractionClient") ?: return
+        val off: () -> Boolean = { active() && breakageEnabled() && capOn(snapshot().accCapScreen) }
+        INTERACTION_METHODS.forEach { name ->
+            c.declaredMethods.filter { it.name == name }.forEach { m ->
+                hookMethod(m) { chain ->
+                    if (off()) deniedNodeFor(m) else chain.proceed()
+                }
+            }
+        }
+        c.declaredMethods.filter { it.name == "getConnection" }.forEach { m ->
+            hookMethod(m) { chain ->
+                if (off()) null else chain.proceed()
+            }
+        }
+        
+        
+        c.declaredMethods.filter { it.name == "addConnection" }.forEach { m ->
+            hookMethod(m) { chain ->
+                if (off() && capOn(snapshot().accCapControl)) {
+                    logWarn("blocked AccessibilityInteractionClient.addConnection")
+                    null
+                } else {
+                    chain.proceed()
+                }
+            }
+        }
+        logInfo("accessibility interaction client hook installed")
+    }
+
+    
+
+
+
+
+    private fun hookManagerBinder() {
+        val stub = frameworkCls("android.view.accessibility.IAccessibilityManager\$Stub")
+            ?: frameworkCls("android.view.accessibility.IAccessibilityManager")
+        if (stub != null) {
+            val off: () -> Boolean = { statusOff() }
+            stub.declaredMethods.filter { it.name == "asInterface" }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val r = chain.proceed() ?: return@hookMethod null
+                    if (!off()) return@hookMethod r
+                    runCatching { wrapManagerBinder(r) }.getOrDefault(r)
+                }
+            }
+        } else {
+            logWarn("binder hook: IAccessibilityManager not found, skipped")
+        }
+        logInfo("accessibility manager binder hook installed")
+    }
+
+    
+
+
+
+
+    private fun wrapManagerBinder(original: Any): Any {
+        val iface = runCatching {
+            Class.forName("android.view.accessibility.IAccessibilityManager", false, classLoader)
+        }.getOrNull() ?: return original
+        return java.lang.reflect.Proxy.newProxyInstance(
+            classLoader, arrayOf(iface),
+        ) javaProxy@{ _, method, args ->
+            val name = method.name
+            when {
+                name == "getEnabledAccessibilityServiceList" ||
+                    name == "getInstalledAccessibilityServiceList" ->
+                    java.util.ArrayList<Any>()
+                name == "isAudioDescriptionByDefaultEnabled" -> java.lang.Boolean.FALSE
+                name == "getAccessibilityShortcutTargets" -> java.util.ArrayList<Any>()
+                name == "sendFingerprintGesture" -> java.lang.Boolean.FALSE
+                name == "getRecommendedTimeoutMillis" ->
+                    args?.firstOrNull { it is Int } as? Int ?: 0
+                name == "sendAccessibilityEvent" || name == "interrupt" -> null
+                else -> runCatching { method.invoke(original, *(args ?: emptyArray())) }
+                    .getOrNull()
+            }
+        }
+    }
+
+    
+
+
+
+
+    private fun hookNameAndSettingsBypass() {
+        val pm = frameworkCls("android.app.ApplicationPackageManager")
+            ?: frameworkCls("android.content.pm.PackageManager")
+        if (pm != null) {
+            val off: () -> Boolean = { statusOff() }
+            val isA11yAction = { intent: Any? ->
+                runCatching {
+                    val m = intent?.javaClass?.getMethod("getAction")
+                    val a = m?.invoke(intent) as? String
+                    a != null && a.contains("accessibilityservice", ignoreCase = true)
+                }.getOrDefault(false)
+            }
+            pm.declaredMethods.filter {
+                it.name == "queryIntentServices" || it.name == "queryIntentServicesAsUser"
+            }.forEach { m ->
+                hookMethod(m) { chain ->
+                    val r = chain.proceed()
+                    if (!off() || r == null) return@hookMethod r
+                    if (!isA11yAction(chain.args.firstOrNull { it?.javaClass?.name?.contains("Intent") == true })) {
+                        return@hookMethod r
+                    }
+                    logWarn("blocked PackageManager.${m.name} (accessibility service scan)")
+                    
+                    runCatching {
+                        @Suppress("UNCHECKED_CAST")
+                        (r as MutableList<Any?>).clear()
+                    }
+                    r
+                }
+            }
+        }
+        logInfo("accessibility package manager bypass hook installed")
     }
 
     
@@ -492,8 +986,11 @@ internal class AccessibilityDefender(
         val tick = object : Runnable {
             override fun run() {
                 val cfg = snapshot()
+                
+                
                 val on = XpState.Flags.forceAccessibilityAll ||
-                        (cfg.accEnable && cfg.accCapOverlay)
+                        (cfg.accEnable && cfg.accCapOverlay &&
+                            cfg.accScope != XpConfig.ACC_SCOPE_CLOSE_ONLY)
                 if (!on) {
                     Holder.sweeperStarted.set(false)
                     return
@@ -562,15 +1059,25 @@ internal class AccessibilityDefender(
         val cfg = snapshot()
         if (!cfg.accEnable) return false
         
-        return cfg.accScope == 1 || cfg.accScope == 2
+        return cfg.accScope != XpConfig.ACC_SCOPE_CLOSE_ONLY
     }
 
     
 
-    @Volatile
-    private var watchdogRunning = false
+    
 
-    private val watchdogLock = Any()
+
+
+
+
+
+
+
+    private object Watchdog {
+        @Volatile
+        var running = false
+        val lock = Any()
+    }
 
     
 
@@ -580,9 +1087,10 @@ internal class AccessibilityDefender(
 
 
     private fun startWatchdog() {
-        synchronized(watchdogLock) {
-            if (watchdogRunning) return
-            watchdogRunning = true
+        
+        synchronized(Watchdog.lock) {
+            if (Watchdog.running) return
+            Watchdog.running = true
         }
         Thread {
             var round = 0
@@ -591,12 +1099,12 @@ internal class AccessibilityDefender(
                 runCatching {
                     
                     
-                    if (!shouldDisableContinuously() && !XpState.Flags.forceAccessibility
-                        && !oneShotPending()
-                    ) {
+                    val stopNow = !shouldDisableContinuously() &&
+                            !XpState.Flags.forceAccessibility && !oneShotPending()
+                    if (stopNow) {
                         idle++
                         if (idle >= 10) {
-                            synchronized(watchdogLock) { watchdogRunning = false }
+                            synchronized(Watchdog.lock) { Watchdog.running = false }
                             logInfo("accessibility watchdog stopped")
                             return@Thread
                         }
@@ -638,18 +1146,41 @@ internal class AccessibilityDefender(
 
 
 
+    
+
+
+
+
+
+
+
+
+
+
     private fun blockOn(
         clazz: Class<*>?,
         names: Set<String>,
         cap: () -> Boolean,
         tag: String,
+        dataClass: Boolean = false,
     ) {
         val c = clazz ?: return
         c.declaredMethods.filter { it.name in names }.forEach { m ->
             hookMethod(m) { chain ->
                 if (active() && breakageEnabled() && cap()) {
-                    logWarn("blocked $tag.${m.name}")
-                    deniedFor(m)
+                    if (fakeMode()) {
+                        if (dataClass) {
+                            
+                            chain.proceed()
+                        } else {
+                            logWarn("fake success $tag.${m.name}")
+                            successFor(m)
+                        }
+                    } else {
+                        logWarn("blocked $tag.${m.name}")
+                        
+                        deniedNodeFor(m)
+                    }
                 } else {
                     chain.proceed()
                 }
@@ -668,6 +1199,12 @@ internal class AccessibilityDefender(
 
 
     fun disableAllNow() {
+        
+        
+        if (snapshot().accScope == XpConfig.ACC_SCOPE_HOOK_ONLY) {
+            logInfo("disableAllNow skipped: 运行方式为只运行钩子")
+            return
+        }
         
         oneShotUntil = System.currentTimeMillis() + 10_000L
         startWatchdog()
@@ -749,6 +1286,13 @@ internal class AccessibilityDefender(
             "getDrawingOrder", "getMovementGranularities", "getMaxScrollX", "getMaxScrollY",
             "getScrollX", "getScrollY", "getCollectionInfo", "getCollectionItemInfo",
             "getRangeInfo", "getTouchDelegateInfo", "getWindow", "getWindowId",
+            
+            "findFocus", "focusSearch", "findAccessibilityNodeInfosByViewIdUiThread",
+            "getAvailableExtraData", "getExtraRenderingData", "refreshWithExtraData",
+            "isLongClickable", "isCheckable", "isAccessibilityDataSensitive",
+            
+            "getContainerTitle", "getExtraRenderingInfo", "isTextEntryKey",
+            "getBoundsInParent", "getTextSelectionEnd", "getMinDurationBetweenContentChanges",
         )
 
         
@@ -758,28 +1302,56 @@ internal class AccessibilityDefender(
             "findAccessibilityNodeInfosByText",
             "findAccessibilityNodeInfosByViewId",
             "findAccessibilityNodeInfosByTextUiThread",
+            "findAccessibilityNodeInfosByViewIdUiThread",
             "findFocus", "findFocusUiThread",
             "performAccessibilityAction",
+            
+            "getWindows", "getWindowsOnAllDisplays", "getWindow", "clearCache",
+            
+            "focusSearch", "getRootInActiveWindow", "clearAccessibilityCache",
         )
 
         
         private val NOTIFY_METHODS: Set<String> = setOf(
             "getText", "getContentDescription", "getParcelableData",
             "getItemCount", "getCurrentItemIndex", "getFromIndex", "getToIndex",
+            
+            "getTextChangeTypes", "getSpeechStateChangeTypes", "getClassName",
         )
 
-        
-        private val INPUT_METHODS: Set<String> = setOf("getText", "getBeforeText")
 
-        
+        private val INPUT_METHODS: Set<String> = setOf(
+            "getText", "getBeforeText",
+            
+            "getInputType", "getLiveRegion", "getMaxTextLength", "getHintText",
+        )
+
+
         private val EVENT_WINDOW_METHODS: Set<String> = setOf(
             "getSource", "getEventType", "getAction",
             "getMovementGranularity", "getContentChangeTypes", "getDisplayId",
+            
+            "getWindowChanges", "getTextChangeTypes", "getSpeechStateChangeTypes",
+            
+            "getRecord", "getRecordCount",
+            
+            "getWindow",
         )
 
         
+
+
+
+
         private val RECORD_WINDOW_METHODS: Set<String> = setOf(
             "getClassName", "getPackageName", "getWindowId",
+            "getSource", "getSourceNodeId", "getText", "getContentDescription",
+            "getBeforeText", "getFromIndex", "getToIndex",
+            "getItemCount", "getCurrentItemIndex",
+            "isScrollable", "getScrollX", "getScrollY",
+            "getMaxScrollX", "getMaxScrollY", "getScrollDeltaX", "getScrollDeltaY",
+            "getCollectionInfo", "getCollectionItemInfo",
+            "getContentChangeTypes", "getMovementGranularity", "getTextChangeTypes",
         )
 
         
@@ -787,6 +1359,17 @@ internal class AccessibilityDefender(
             "getRoot", "getChild", "getTitle", "getId", "getLayer", "getType",
             "isActive", "isFocused", "isAccessibilityFocused", "getParent", "getAnchor",
             "getDisplayId", "getRegionInScreen",
+            
+            "getChildCount", "getBoundsInScreen", "getControlledWindow",
+            "getControlledWindowsCount", "getControllingWindow",
+            "getLocales", "getTransitionTimeMillis", "isInPictureInPictureMode",
+            "refresh",
+        )
+
+        
+        private val OVERLAY_SERVICE_METHODS: Set<String> = setOf(
+            "attachAccessibilityOverlayToDisplay", "attachAccessibilityOverlayToWindow",
+            "detachAccessibilityOverlay",
         )
 
         
@@ -798,6 +1381,42 @@ internal class AccessibilityDefender(
             "onCreateInputMethod", "getAccessibilityButtonController",
             "getMagnificationController", "getSoftKeyboardController",
             "getFingerprintGestureController",
+            
+            "getAccessibilityFocusAppearance", "clearCache", "clearCachedSubtree",
+            "isNodeInCache", "isCacheEnabled", "getServiceInfo",
+            "getBrailleDisplayController",
+        )
+
+        
+        private val MAGNIFICATION_METHODS: Set<String> = setOf(
+            "setMagnificationScale", "setScale", "setCenter", "setMagnificationConfig",
+            "reset", "resetCurrentMagnification", "getScale", "getCenterX", "getCenterY",
+            "getMagnificationRegion", "getCurrentMagnificationRegion", "getMagnificationConfig",
+            "addListener", "removeListener",
+            
+            "isActivated", "isMagnifying",
+        )
+
+        
+        private val SOFT_KEYBOARD_METHODS: Set<String> = setOf(
+            "setShowSoftKeyboard", "showSoftKeyboard", "setSoftKeyboardShowMode",
+            "setShowMode", "getShowMode", "setInputMethodEnabled", "switchToInputMethod",
+            "addOnShowModeChangedListener", "removeOnShowModeChangedListener",
+        )
+
+        private val FINGERPRINT_METHODS: Set<String> = setOf(
+            "dispatchFingerprintGesture", "isGestureDetectionAvailable",
+            "registerFingerprintGestureCallback", "unregisterFingerprintGestureCallback",
+        )
+
+        private val BUTTON_CONTROLLER_METHODS: Set<String> = setOf(
+            "isAccessibilityButtonAvailable",
+            "registerAccessibilityButtonCallback", "unregisterAccessibilityButtonCallback",
+        )
+
+        
+        private val BRAILLE_METHODS: Set<String> = setOf(
+            "connect", "disconnect", "write", "isConnected",
         )
 
         
@@ -810,6 +1429,12 @@ internal class AccessibilityDefender(
             "onFingerprintCapturingGesturesChanged", "onFingerprintGesture",
             "onAccessibilityButtonClicked", "onAccessibilityButtonAvailabilityChanged",
             "onPerformGestureResult", "init",
+            
+            "onTouchInteractionStart", "onTouchInteractionEnd",
+            "onCreateInputMethod", "onAccessibilityInputConnectionCreated",
+            
+            
+            "onTouchStateChanged", "createImeSession", "startInput",
         )
 
         
@@ -837,6 +1462,18 @@ internal class AccessibilityDefender(
         private const val TYPE_WINDOW_STATE_CHANGED = 32
         private const val TYPE_WINDOW_CONTENT_CHANGED = 2048
         private const val TYPE_WINDOWS_CHANGED = 4194304
+
+        
+        private const val TYPE_VIEW_FOCUSED = 8
+        private const val TYPE_VIEW_SCROLLED = 4096
+        private const val TYPE_VIEW_TEXT_SELECTION_CHANGED = 8192
+        private const val TYPE_ANNOUNCEMENT = 16384
+        private const val TYPE_VIEW_ACCESSIBILITY_FOCUSED = 32768
+        private const val TYPE_VIEW_TEXT_TRAVERSED = 131072
+        private const val TYPE_GESTURE_DETECTION_START = 262144
+        private const val TYPE_GESTURE_DETECTION_END = 524288
+        private const val TYPE_TOUCH_INTERACTION_START = 1048576
+        private const val TYPE_TOUCH_INTERACTION_END = 2097152
 
         
         private const val TYPE_ACCESSIBILITY_OVERLAY = 2032

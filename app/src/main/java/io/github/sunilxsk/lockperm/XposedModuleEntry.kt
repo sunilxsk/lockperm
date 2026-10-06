@@ -56,9 +56,56 @@ class XposedModuleEntry : XposedModule() {
         private const val SELF = "io.github.sunilxsk.lockperm"
     }
 
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private object ProcessOnce {
+        private val done = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun claim(): Boolean = done.compareAndSet(false, true)
+    }
+
+    
+
+
+
+
+
+
+
+
+
+    private fun awaitConfig(prefs: android.content.SharedPreferences, pkg: String): XpState.Snapshot {
+        var snap = XpState.refresh(prefs, force = true)
+        if (snap.hasConfig) return snap
+        for (i in 0 until 8) {
+            runCatching { Thread.sleep(75) }
+            snap = XpState.refresh(prefs, force = true)
+            if (snap.hasConfig) {
+                logAt(Log.INFO, TAG, "[$pkg] 配置在第 ${i + 1} 次重试后同步到位")
+                return snap
+            }
+        }
+        logAt(Log.WARN, TAG, "[$pkg] 配置始终为空（RemotePreferences 未同步）")
+        return snap
+    }
+
     override fun onPackageReady(param: PackageReadyParam) {
         val pkg = param.packageName
         if (SELF == pkg) return
+
 
         
         if (pkg == "android" || pkg == "system" || pkg.startsWith("com.android.systemui")) {
@@ -72,9 +119,27 @@ class XposedModuleEntry : XposedModule() {
             return
         }
 
+        
+        
+        
+        
+        if (!ProcessOnce.claim()) {
+            logAt(
+                Log.INFO, TAG,
+                "skip duplicate install for $pkg (hooks already active in this process)"
+            )
+            return
+        }
+
         val cl = param.classLoader
+        
+        
+        XpState.RealSdk.capture()
         XpState.setHost(pkg)
-        val cfg = XpState.refresh(prefs, force = true)
+        
+        
+        
+        val cfg = awaitConfig(prefs, pkg)
 
         
         
@@ -98,6 +163,39 @@ class XposedModuleEntry : XposedModule() {
         runCatching { ExtraIdentity(this, prefs, cl).install() }
             .onFailure { logAt(Log.WARN, TAG, "extra identity failed: ${it.message}") }
 
+
+        
+        runCatching { MobileServicesSpoofer(this, prefs, cl).install() }
+            .onFailure { logAt(Log.WARN, TAG, "mobile services spoof failed: ${it.message}") }
+
+        
+        runCatching { DpiSpoofer(this, prefs, cl).install() }
+            .onFailure { logAt(Log.WARN, TAG, "dpi spoofer failed: ${it.message}") }
+
+        
+        runCatching { DisplaySpoofer(this, prefs, cl).install() }
+            .onFailure { logAt(Log.WARN, TAG, "display spoofer failed: ${it.message}") }
+
+        
+        runCatching { MemoryStorageSpoofer(this, prefs, cl).install() }
+            .onFailure { logAt(Log.WARN, TAG, "memory/storage spoofer failed: ${it.message}") }
+
+        
+        runCatching { CameraSpoofer(this, prefs, cl).install() }
+            .onFailure { logAt(Log.WARN, TAG, "camera spoofer failed: ${it.message}") }
+
+        
+        runCatching { NetworkParamSpoofer(this, prefs, cl).install() }
+            .onFailure { logAt(Log.WARN, TAG, "net param spoofer failed: ${it.message}") }
+
+        
+        runCatching { BatteryExtraSpoofer(this, prefs, cl).install() }
+            .onFailure { logAt(Log.WARN, TAG, "battery extra spoofer failed: ${it.message}") }
+
+        
+        runCatching { SimExtraSpoofer(this, prefs, cl).install() }
+            .onFailure { logAt(Log.WARN, TAG, "sim extra spoofer failed: ${it.message}") }
+
         
         runCatching { HardwareSpoofer(this, prefs, cl).install() }
             .onFailure { logAt(Log.WARN, TAG, "hardware spoofer failed: ${it.message}") }
@@ -107,16 +205,16 @@ class XposedModuleEntry : XposedModule() {
             .onFailure { logAt(Log.WARN, TAG, "shell spoofer failed: ${it.message}") }
 
         
-        runCatching { HidePathDefender(this, prefs, cl).install() }
-            .onFailure { logAt(Log.WARN, TAG, "hide path failed: ${it.message}") }
-
-        
         runCatching { FileSpoofer(this, prefs, cl).install() }
             .onFailure { logAt(Log.WARN, TAG, "file spoofer failed: ${it.message}") }
 
         
         runCatching { WifiFakeDefender(this, prefs, cl).install() }
             .onFailure { logAt(Log.WARN, TAG, "wifi fake failed: ${it.message}") }
+
+        
+        runCatching { LocationSpoofer(this, prefs, cl).install() }
+            .onFailure { logAt(Log.WARN, TAG, "location spoof failed: ${it.message}") }
 
         
         runCatching { RootFakeDefender(this, prefs, cl).install() }
@@ -177,6 +275,11 @@ class XposedModuleEntry : XposedModule() {
         val guardOn = true
         if (guardOn) {
             
+            
+            runCatching { LagSelfCheck(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "lag self check failed: ${it.message}") }
+
+            
             runCatching { ExitExecutor.install(this, prefs) }
                 .onFailure { logAt(Log.WARN, TAG, "exit executor failed: ${it.message}") }
 
@@ -187,6 +290,39 @@ class XposedModuleEntry : XposedModule() {
             
             runCatching { OverlayDefender(this, prefs, cl).install() }
                 .onFailure { logAt(Log.WARN, TAG, "overlay defender failed: ${it.message}") }
+
+            
+            runCatching { RecentsDefender(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "recents defender failed: ${it.message}") }
+
+            
+            runCatching { WindowFlagDefender(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "window flag failed: ${it.message}") }
+
+            
+            runCatching { WifiSavedDefender(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "wifi saved defender failed: ${it.message}") }
+
+            
+            runCatching { WakeLockDefender(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "wake lock defender failed: ${it.message}") }
+
+            
+            runCatching { ScreenOffDefender(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "screen off defender failed: ${it.message}") }
+
+            
+            runCatching { NotifyHideDefender(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "notify hide defender failed: ${it.message}") }
+
+            
+            runCatching { ProviderDefender(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "provider defender failed: ${it.message}") }
+
+            
+            runCatching { ForegroundServiceDefender(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "fg service defender failed: ${it.message}") }
+
 
             
             runCatching { WirelessDebuggingDefender(this, prefs, cl).install() }
@@ -218,6 +354,10 @@ class XposedModuleEntry : XposedModule() {
                 .onFailure { logAt(Log.WARN, TAG, "jump defender failed: ${it.message}") }
 
             
+            runCatching { BackgroundLaunchDefender(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "background launch defender failed: ${it.message}") }
+
+            
             runCatching { CameraMicDefender(this, prefs, cl).install() }
                 .onFailure { logAt(Log.WARN, TAG, "camera/mic defender failed: ${it.message}") }
 
@@ -244,6 +384,10 @@ class XposedModuleEntry : XposedModule() {
             
             runCatching { TorchVibrateDefender(this, prefs, cl).install() }
                 .onFailure { logAt(Log.WARN, TAG, "torch/vibrate defender failed: ${it.message}") }
+
+            
+            runCatching { KeyEventDefender(this, prefs, cl).install() }
+                .onFailure { logAt(Log.WARN, TAG, "key consume defender failed: ${it.message}") }
 
             
             if (cfg.daEnable) {

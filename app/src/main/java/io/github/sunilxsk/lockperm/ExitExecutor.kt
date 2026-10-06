@@ -41,8 +41,19 @@ internal object ExitExecutor {
 
     
 
+    
+
+
+
+
+
+
+
+    private val hooksInstalled = AtomicBoolean(false)
+
     fun install(module: XposedModule, prefs: SharedPreferences) {
         this.prefs = prefs
+        if (!hooksInstalled.compareAndSet(false, true)) return
 
         runCatching {
             val m = Activity::class.java.getDeclaredMethod("onCreate", Bundle::class.java)
@@ -57,10 +68,23 @@ internal object ExitExecutor {
                         if (appContext == null) {
                             appContext = act.applicationContext
                             maybeStartCountdown()
+                            
+                            val ctx = act.applicationContext
+                            runCatching { ConditionExitWatcher.start(module, prefs, ctx) }
                         }
                     }
                     result
                 }
+        }
+
+        
+        
+        runCatching {
+            val m = Activity::class.java.getDeclaredMethod("onUserInteraction")
+            module.hook(m).intercept { chain ->
+                runCatching { ConditionExitWatcher.noteInteraction() }
+                chain.proceed()
+            }
         }
 
         runCatching {
@@ -77,8 +101,11 @@ internal object ExitExecutor {
 
     private fun maybeStartCountdown() {
         val cfg = config() ?: return
-        
+
         if (!cfg.exitEnable) return
+        
+        
+        if (!cfg.exitCountdown) return
         val seconds = cfg.exitSeconds
         if (seconds <= 0) return
         if (!countdownStarted.compareAndSet(false, true)) return
@@ -135,6 +162,17 @@ internal object ExitExecutor {
         if (beforeExit && cfg != null && cfg.accEnable && cfg.accMode == 1) {
             
             AccessibilityDefender.disableAllNow()
+        }
+        
+        
+        
+        
+        
+        val exitScheduled = cfg != null && cfg.exitEnable
+        if (beforeExit && exitScheduled &&
+            cfg != null && cfg.daEnable && cfg.daCloseMode == XpConfig.DA_CLOSE_BEFORE_EXIT
+        ) {
+            DeviceAdminDefender.removeAllNow()
         }
 
         val list = methods.ifEmpty { XpConfig.EXIT_METHOD_KEYS }

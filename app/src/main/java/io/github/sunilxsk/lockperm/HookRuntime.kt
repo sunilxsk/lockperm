@@ -203,6 +203,19 @@ internal object HookRuntime {
     }
 
     
+    fun blockBgLaunchNow(): Boolean {
+        val (m, p, cl) = triple() ?: return false
+        return runCatching { BackgroundLaunchDefender(m, p, cl).installNow(); true }
+            .getOrDefault(false)
+    }
+
+    
+    fun blockKeyNow(): Boolean {
+        val (m, p, cl) = triple() ?: return false
+        return runCatching { KeyEventDefender(m, p, cl).installNow(); true }.getOrDefault(false)
+    }
+
+    
 
 
 
@@ -218,6 +231,7 @@ internal object HookRuntime {
         tryIt { blockConnNow() }
         tryIt { blockSensorNow() }
         tryIt { blockJumpNow() }
+        tryIt { blockBgLaunchNow() }
         tryIt { blockCameraMicNow() }
         tryIt { blockInstallNow() }
         tryIt { blockPrintCastNow() }
@@ -226,6 +240,16 @@ internal object HookRuntime {
         tryIt { blockNetNow() }
         tryIt { accessibilityAllInOne() }
         tryIt { deviceAdminAllInOne() }
+        tryIt { blockTorchVibrateNow() }
+        tryIt { blockClipNow() }
+        tryIt { blockFileNow() }
+        tryIt { blockHideAppsNow() }
+        tryIt { blockAudioOutNow() }
+        tryIt { blockWdbgNow() }
+        tryIt { blockShizukuNow() }
+        tryIt { blockExecNow() }
+        tryIt { blockVolumeNow() }
+        tryIt { blockKeyNow() }
         return ok
     }
 

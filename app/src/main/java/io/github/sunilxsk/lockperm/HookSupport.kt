@@ -21,23 +21,72 @@ internal abstract class HookSupport(
 ) {
 
     
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    private val installerKey: String get() = javaClass.name
+
     private fun logOn(): Boolean = XpState.Flags.logEnabled
 
-    protected fun logInfo(msg: String) {
+    
+
+
+
+
+
+
+
+    private object LogThrottle {
+        private const val WINDOW_MS = 2000L
+        private val last = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private val dropped = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+        
+        fun pass(key: String): Pair<Boolean, Int> {
+            val now = System.currentTimeMillis()
+            val prev = last[key]
+            if (prev == null || now - prev > WINDOW_MS) {
+                last[key] = now
+                val n = dropped.remove(key) ?: 0
+                return true to n
+            }
+            val n = (dropped[key] ?: 0) + 1
+            dropped[key] = n
+            return false to n
+        }
+    }
+
+    private fun emit(level: Int, msg: String, t: Throwable?) {
         if (!logOn()) return
+        val (pass, skipped) = LogThrottle.pass(msg)
+        if (!pass) return
+        val text = if (skipped > 0) "$msg（另有 $skipped 条相同日志已省略）" else msg
         try {
-            module.log(android.util.Log.INFO, TAG, "[$pkg] $msg")
+            if (t != null) module.log(level, TAG, "[$pkg] $text", t)
+            else module.log(level, TAG, "[$pkg] $text")
         } catch (_: Throwable) {
         }
     }
 
+    protected fun logInfo(msg: String) {
+        emit(android.util.Log.INFO, msg, null)
+    }
+
     protected fun logWarn(msg: String, t: Throwable? = null) {
-        if (!logOn()) return
-        try {
-            if (t != null) module.log(android.util.Log.WARN, TAG, "[$pkg] $msg", t)
-            else module.log(android.util.Log.WARN, TAG, "[$pkg] $msg")
-        } catch (_: Throwable) {
-        }
+        emit(android.util.Log.WARN, msg, t)
     }
 
     private val pkg: String get() = XpState.packageName
@@ -65,12 +114,34 @@ internal abstract class HookSupport(
 
 
 
-    protected fun loadClassAnywhere(name: String): Class<*>? {
-        cls(name)?.let { return it }
-        runCatching { Class.forName(name) }.getOrNull()?.let { return it }
-        runCatching { Class.forName(name, true, ClassLoader.getSystemClassLoader()) }.getOrNull()?.let { return it }
-        return runCatching { Class.forName(name, true, Object::class.java.classLoader) }.getOrNull()
+    
+
+
+
+
+
+
+
+
+    private object ClassCache {
+        private val map = java.util.concurrent.ConcurrentHashMap<String, Class<*>?>()
+
+        fun get(name: String, find: () -> Class<*>?): Class<*>? {
+            map[name]?.let { return it }
+            if (map.containsKey(name)) return null
+            val c = find()
+            map[name] = c
+            return c
+        }
     }
+
+    protected fun loadClassAnywhere(name: String): Class<*>? =
+        ClassCache.get(name) {
+            cls(name)
+                ?: runCatching { Class.forName(name) }.getOrNull()
+                ?: runCatching { Class.forName(name, true, ClassLoader.getSystemClassLoader()) }.getOrNull()
+                ?: runCatching { Class.forName(name, true, Object::class.java.classLoader) }.getOrNull()
+        }
 
     
     protected fun tryGetMethod(clazz: Class<*>, name: String, vararg params: Class<*>): Method? {
@@ -90,16 +161,29 @@ internal abstract class HookSupport(
     }
 
     
+    
+
+
+
+
+
+
+
+
+
+
     protected fun hookMethod(
         method: Method,
         priority: Int = XposedInterface.PRIORITY_HIGHEST,
+        deoptimize: Boolean = false,
         interceptor: (XposedInterface.Chain) -> Any?,
     ): Boolean {
         
         
         if (Modifier.isAbstract(method.modifiers)) return false
+        if (!claimHook(installerKey, method)) return false
         return runCatching {
-            deopt(method)
+            if (deoptimize) deopt(method)
             module.hook(method)
                 .setPriority(priority)
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
@@ -113,11 +197,13 @@ internal abstract class HookSupport(
     protected fun hookCtor(
         ctor: Constructor<*>,
         priority: Int = XposedInterface.PRIORITY_HIGHEST,
+        deoptimize: Boolean = false,
         interceptor: (XposedInterface.Chain) -> Any?,
     ): Boolean {
         if (Modifier.isAbstract(ctor.modifiers)) return false
+        if (!claimHook(installerKey, ctor)) return false
         return runCatching {
-            deopt(ctor)
+            if (deoptimize) deopt(ctor)
             module.hook(ctor)
                 .setPriority(priority)
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
@@ -171,6 +257,21 @@ internal abstract class HookSupport(
     protected fun snapshot(): XpState.Snapshot = XpState.refresh(prefs)
 
     
+
+
+
+
+
+
+
+
+    protected fun orProceed(chain: XposedInterface.Chain, value: Any?): Any? =
+        if (value == null) chain.proceed() else value
+
+    
+    protected fun orElse(value: Any?, fallback: Any?): Any? = value ?: fallback
+
+    
     protected fun toast(msg: String) {
         runCatching {
             val ctx = appContext() ?: return
@@ -207,6 +308,15 @@ internal abstract class HookSupport(
     protected val INT_TYPE: Class<*> = Int::class.javaPrimitiveType!!
 
     
+
+
+
+
+
+
+
+
+
     protected fun deniedFor(m: Method): Any? = when (m.returnType) {
         java.lang.Boolean.TYPE -> false
         java.lang.Integer.TYPE -> 0
@@ -215,10 +325,37 @@ internal abstract class HookSupport(
         java.lang.Double.TYPE -> 0.0
         java.lang.Short.TYPE -> 0.toShort()
         java.lang.Byte.TYPE -> 0.toByte()
+        java.lang.Character.TYPE -> 0.toChar()
+        android.os.Bundle::class.java -> android.os.Bundle()
+        String::class.java, CharSequence::class.java -> ""
+        
+        
+        
+        List::class.java, java.util.ArrayList::class.java,
+        java.util.Collection::class.java -> java.util.ArrayList<Any>()
+        Map::class.java, java.util.HashMap::class.java -> java.util.HashMap<Any, Any>()
         else -> null
     }
 
     companion object {
         private const val TAG = "LockPerm"
+
+        
+
+
+
+
+        private val hooked = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+        
+        internal fun claimHook(installer: String, e: Executable): Boolean {
+            val params = runCatching {
+                (e as? Method)?.parameterTypes
+                    ?: (e as Constructor<*>).parameterTypes
+            }.getOrNull()
+            val key = installer + '#' + e.declaringClass.name + '#' + e.name +
+                '#' + java.util.Arrays.toString(params)
+            return hooked.putIfAbsent(key, true) == null
+        }
     }
 }

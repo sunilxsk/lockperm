@@ -17,6 +17,8 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <sys/vfs.h>
 #include <sys/syscall.h>
 #include <sys/sysinfo.h>
 #include <sys/system_properties.h>
@@ -32,13 +34,13 @@
 #define GRP_TIME (1u << 2)
 #define GRP_FILE (1u << 3)
 #define GRP_STAT (1u << 4)
-#define GRP_DIR (1u << 5)
 #define GRP_EXEC (1u << 6)
 #define GRP_EXIT (1u << 7)
 #define GRP_NET (1u << 8)
 #define GRP_READ (1u << 9)
 #define GRP_MMAP (1u << 10)
 #define GRP_GPU (1u << 11)
+#define GRP_SENSOR (1u << 12)
 
 #include <map>
 #include <string>
@@ -62,11 +64,11 @@ namespace {
 volatile bool g_enabled = false;
 volatile bool g_installed = false;
 uint32_t g_groups = 0;
+bool g_sensor_block = false;
 
 pthread_rwlock_t g_lock = PTHREAD_RWLOCK_INITIALIZER;
 
 std::map<std::string, std::string> g_props;
-std::vector<std::string> g_hide;
 std::vector<std::string> g_exist;
 std::string g_kernel;
 std::string g_arch;
@@ -116,6 +118,13 @@ std::map<int, std::string> g_fdpath;
 
 struct SpoofFile;
 std::map<int, SpoofFile *> g_fdspoof;
+
+uint64_t g_stor_total = 0;
+uint64_t g_stor_avail = 0;
+bool g_stor_enable = false;
+
+std::map<FILE *, SpoofFile *> g_fspoof;
+std::map<FILE *, size_t> g_fspoof_pos;
 std::map<int, size_t> g_fdspoof_pos;
 
 volatile bool g_need_fdtrack = false;
@@ -129,8 +138,6 @@ volatile bool g_uptime_enable = false;
 volatile bool g_block_exec = false;
 volatile bool g_block_exit = false;
 volatile bool g_crash_catch = false;
-
-std::map<DIR *, std::string> g_dirs;
 
 struct SpoofFile {
   std::string path;
@@ -189,26 +196,20 @@ uint32_t fnv(const char *s) {
   return h;
 }
 
-bool pathEqualsOrUnder(const std::string &s, const std::string &h) {
-  if (h.empty()) return false;
-  if (s == h) return true;
-  return s.size() > h.size() && s.compare(0, h.size(), h) == 0 && s[h.size()] == '/';
-}
-
-bool isHidden(const char *p) {
-  if (!g_enabled || p == nullptr || *p == '\0') return false;
-  std::string s(p);
-  pthread_rwlock_rdlock(&g_lock);
-  bool hit = false;
-  for (size_t i = 0; i < g_hide.size() && !hit; ++i) {
-    hit = pathEqualsOrUnder(s, g_hide[i]);
-  }
-  pthread_rwlock_unlock(&g_lock);
-  return hit;
+static inline bool pathInteresting(const char *p) {
+  if (p == nullptr || p[0] != '/') return false;
+  const char c1 = p[1];
+  if (c1 == 'p') return strncmp(p, "/proc/", 6) == 0;
+  if (c1 == 's') return strncmp(p, "/sys/", 5) == 0;
+  if (c1 == 'd') return strncmp(p, "/dev/", 5) == 0;
+  if (c1 == 'v') return strncmp(p, "/vendor/", 8) == 0;
+  if (c1 == 'a') return strncmp(p, "/apex/", 6) == 0;
+  return false;
 }
 
 bool isForceExist(const char *p) {
   if (!g_enabled || p == nullptr || *p == '\0') return false;
+  if (!pathInteresting(p)) return false;
   std::string s(p);
   pthread_rwlock_rdlock(&g_lock);
   bool hit = false;
@@ -221,6 +222,7 @@ bool isForceExist(const char *p) {
 
 SpoofFile *findSpoof(const char *p) {
   if (!g_enabled || p == nullptr || *p == '\0') return nullptr;
+  if (!pathInteresting(p)) return nullptr;
   std::string s(p);
   pthread_rwlock_rdlock(&g_lock);
   SpoofFile *hit = nullptr;
@@ -420,8 +422,11 @@ std::string fdPath(int fd) {
 
 void trackFd(int fd, const std::string &path, SpoofFile *spoof) {
   if (fd < 0) return;
+  const bool wantPath = g_need_fdtrack && !path.empty() &&
+                        (g_anti_detect || spoof != nullptr);
+  if (!wantPath && spoof == nullptr) return;
   pthread_rwlock_wrlock(&g_lock);
-  if (g_need_fdtrack && !path.empty()) g_fdpath[fd] = path;
+  if (wantPath) g_fdpath[fd] = path;
   if (spoof != nullptr) {
     g_fdspoof[fd] = spoof;
     g_fdspoof_pos[fd] = 0;
@@ -542,16 +547,19 @@ int64_t realUptimeMs() {
 typedef int (*prop_get_t)(const char *, char *);
 prop_get_t orig_prop_get = nullptr;
 
+bool propLookup(const char *name, std::string &out) {
+  if (!g_enabled || name == nullptr) return false;
+  pthread_rwlock_rdlock(&g_lock);
+  std::map<std::string, std::string>::const_iterator it = g_props.find(name);
+  bool has = (it != g_props.end());
+  if (has) out = it->second;
+  pthread_rwlock_unlock(&g_lock);
+  return has;
+}
+
 int fake_prop_get(const char *name, char *value) {
-  bool has = false;
   std::string v;
-  if (g_enabled && name != nullptr) {
-    pthread_rwlock_rdlock(&g_lock);
-    std::map<std::string, std::string>::const_iterator it = g_props.find(name);
-    if (it != g_props.end()) { has = true; v = it->second; }
-    pthread_rwlock_unlock(&g_lock);
-  }
-  if (has) {
+  if (propLookup(name, v)) {
     if (value != nullptr) {
       size_t n = v.size();
       if (n >= PROP_VALUE_MAX) n = PROP_VALUE_MAX - 1;
@@ -562,6 +570,73 @@ int fake_prop_get(const char *name, char *value) {
   }
   if (orig_prop_get != nullptr) return orig_prop_get(name, value);
   return -1;
+}
+
+typedef const void *(*prop_find_t)(const char *);
+typedef void (*prop_read_cb_t)(const void *, void (*)(void *, const char *,
+                                                      const char *, uint32_t),
+                               void *);
+typedef int (*prop_read_t)(const void *, char *, char *);
+
+prop_find_t orig_prop_find = nullptr;
+prop_read_cb_t orig_prop_read_callback = nullptr;
+prop_read_t orig_prop_read = nullptr;
+
+std::map<const void *, std::string> g_prop_name;
+pthread_mutex_t g_prop_name_lock = PTHREAD_MUTEX_INITIALIZER;
+
+const void *fake_prop_find(const char *name) {
+  const void *pi = orig_prop_find != nullptr ? orig_prop_find(name) : nullptr;
+  if (pi == nullptr || name == nullptr || !g_enabled) return pi;
+  std::string v;
+  if (!propLookup(name, v)) return pi;
+  pthread_mutex_lock(&g_prop_name_lock);
+  g_prop_name[pi] = std::string(name);
+  pthread_mutex_unlock(&g_prop_name_lock);
+  return pi;
+}
+
+const char *nameOfPropInfo(const void *pi) {
+  if (pi == nullptr) return nullptr;
+  static thread_local std::string slot;
+  pthread_mutex_lock(&g_prop_name_lock);
+  std::map<const void *, std::string>::const_iterator it = g_prop_name.find(pi);
+  if (it == g_prop_name.end()) {
+    pthread_mutex_unlock(&g_prop_name_lock);
+    return nullptr;
+  }
+  slot = it->second;
+  pthread_mutex_unlock(&g_prop_name_lock);
+  return slot.c_str();
+}
+
+void fake_prop_read_callback(const void *pi,
+                             void (*cb)(void *, const char *, const char *,
+                                        uint32_t),
+                             void *cookie) {
+  const char *name = nameOfPropInfo(pi);
+  std::string v;
+  if (name != nullptr && propLookup(name, v) && cb != nullptr) {
+    cb(cookie, v.c_str(), v.c_str(), 0u);
+    return;
+  }
+  if (orig_prop_read_callback != nullptr) orig_prop_read_callback(pi, cb, cookie);
+}
+
+int fake_prop_read(const void *pi, char *key, char *value) {
+  const char *name = nameOfPropInfo(pi);
+  std::string v;
+  if (name != nullptr && propLookup(name, v)) {
+    if (key != nullptr) strncpy(key, name, PROP_NAME_MAX - 1);
+    if (value != nullptr) {
+      size_t n = v.size();
+      if (n >= PROP_VALUE_MAX) n = PROP_VALUE_MAX - 1;
+      memcpy(value, v.data(), n);
+      value[n] = '\0';
+    }
+    return (int)v.size();
+  }
+  return orig_prop_read != nullptr ? orig_prop_read(pi, key, value) : -1;
 }
 
 typedef int (*uname_t)(struct utsname *);
@@ -686,6 +761,18 @@ std::string resolvePath(int dirfd, const char *path) {
   return base + path;
 }
 
+bool isSensorPath(const char *p) {
+  if (p == nullptr || p[0] != '/') return false;
+  const bool scoped = strncmp(p, "/sys/", 5) == 0 || strncmp(p, "/dev/", 5) == 0 ||
+                      strncmp(p, "/proc/", 6) == 0 || strncmp(p, "/vendor/", 8) == 0;
+  if (!scoped) return false;
+  if (strstr(p, "/class/thermal/") != nullptr) return false;
+  if (strstr(p, "sensor") != nullptr) return true;
+  if (strstr(p, "/iio:device") != nullptr) return true;
+  if (strstr(p, "/bus/iio/") != nullptr) return true;
+  return false;
+}
+
 int fake_open(const char *path, int flags, ...) {
   mode_t mode = 0;
   if (flags & O_CREAT) {
@@ -694,12 +781,11 @@ int fake_open(const char *path, int flags, ...) {
     mode = (mode_t)va_arg(ap, int);
     va_end(ap);
   }
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return -1;
-  }
-  std::string abs = (path != nullptr) ? std::string(path) : std::string();
   SpoofFile *f = findSpoof(path);
+  std::string abs;
+  if (path != nullptr && (f != nullptr || (g_anti_detect && g_need_fdtrack))) {
+    abs.assign(path);
+  }
   if (f != nullptr) {
     const char *rp = materialize(f);
     if (rp != nullptr) {
@@ -709,6 +795,10 @@ int fake_open(const char *path, int flags, ...) {
       trackFd(fd, abs, f);
       return fd;
     }
+  }
+  if (g_sensor_block && isSensorPath(path)) {
+    errno = EACCES;
+    return -1;
   }
   int fd = orig_open != nullptr
                ? orig_open(path, flags, mode)
@@ -725,12 +815,16 @@ int fake_openat(int dirfd, const char *path, int flags, ...) {
     mode = (mode_t)va_arg(ap, int);
     va_end(ap);
   }
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return -1;
-  }
-  std::string abs = resolvePath(dirfd, path);
   SpoofFile *f = findSpoof(path);
+  const bool needAbs =
+      (f != nullptr) || g_sensor_block ||
+      (g_anti_detect && g_need_fdtrack) ||
+      (path != nullptr && path[0] != '/' && dirfd != AT_FDCWD);
+  std::string abs;
+  if (needAbs) {
+    abs = resolvePath(dirfd, path);
+    if (f == nullptr) f = findSpoof(abs.c_str());
+  }
   if (f != nullptr) {
     const char *rp = materialize(f);
     if (rp != nullptr) {
@@ -741,6 +835,10 @@ int fake_openat(int dirfd, const char *path, int flags, ...) {
       return fd;
     }
   }
+  if (g_sensor_block && (isSensorPath(path) || isSensorPath(abs.c_str()))) {
+    errno = EACCES;
+    return -1;
+  }
   int fd = orig_openat != nullptr
                ? orig_openat(dirfd, path, flags, mode)
                : (int)syscall(__NR_openat, dirfd, path, flags, mode);
@@ -749,23 +847,103 @@ int fake_openat(int dirfd, const char *path, int flags, ...) {
 }
 
 FILE *fake_fopen(const char *path, const char *mode) {
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return nullptr;
-  }
   std::string abs = (path != nullptr) ? std::string(path) : std::string();
   SpoofFile *f = findSpoof(path);
   if (f != nullptr) {
     const char *rp = materialize(f);
     if (rp != nullptr && orig_fopen != nullptr) {
       FILE *fp = orig_fopen(rp, mode);
-      if (fp != nullptr) trackFd(fileno(fp), abs, f);
+      if (fp != nullptr) {
+        trackFd(fileno(fp), abs, f);
+        pthread_rwlock_wrlock(&g_lock);
+        g_fspoof[fp] = f;
+        g_fspoof_pos[fp] = 0;
+        pthread_rwlock_unlock(&g_lock);
+      }
       return fp;
     }
   }
+  if (g_sensor_block && isSensorPath(path)) {
+    errno = EACCES;
+    return nullptr;
+  }
   FILE *fp = orig_fopen != nullptr ? orig_fopen(path, mode) : nullptr;
-  if (fp != nullptr) trackFd(fileno(fp), abs, f);
+  if (fp != nullptr) {
+    trackFd(fileno(fp), abs, f);
+    if (f != nullptr) {
+      pthread_rwlock_wrlock(&g_lock);
+      g_fspoof[fp] = f;
+      g_fspoof_pos[fp] = 0;
+      pthread_rwlock_unlock(&g_lock);
+    }
+  }
   return fp;
+}
+
+typedef int (*statvfs_t)(const char *, struct statvfs *);
+typedef int (*statvfs64_t)(const char *, struct statvfs64 *);
+typedef int (*statfs_t)(const char *, struct statfs *);
+typedef int (*statfs64_t)(const char *, struct statfs64 *);
+
+statvfs_t orig_statvfs = nullptr;
+statvfs64_t orig_statvfs64 = nullptr;
+statfs_t orig_statfs = nullptr;
+statfs64_t orig_statfs64 = nullptr;
+
+static bool isStoragePath(const char *p) {
+  if (p == nullptr) return false;
+  if (strncmp(p, "/data", 5) == 0) return true;
+  if (strncmp(p, "/storage", 8) == 0) return true;
+  if (strncmp(p, "/sdcard", 7) == 0) return true;
+  if (strncmp(p, "/mnt/sdcard", 11) == 0) return true;
+  if (strncmp(p, "/mnt/user", 9) == 0) return true;
+  return false;
+}
+
+int fake_statvfs(const char *path, struct statvfs *st) {
+  int r = orig_statvfs != nullptr ? orig_statvfs(path, st) : -1;
+  if (r == 0 && g_stor_enable && st != nullptr && isStoragePath(path)) {
+    unsigned long bs = st->f_bsize ? st->f_bsize : 4096UL;
+    st->f_frsize = bs;
+    st->f_blocks = (fsblkcnt_t)(g_stor_total / bs);
+    st->f_bfree = (fsblkcnt_t)(g_stor_avail / bs);
+    st->f_bavail = (fsblkcnt_t)(g_stor_avail / bs);
+  }
+  return r;
+}
+
+int fake_statvfs64(const char *path, struct statvfs64 *st) {
+  int r = orig_statvfs64 != nullptr ? orig_statvfs64(path, st) : -1;
+  if (r == 0 && g_stor_enable && st != nullptr && isStoragePath(path)) {
+    unsigned long bs = st->f_bsize ? st->f_bsize : 4096UL;
+    st->f_frsize = bs;
+    st->f_blocks = g_stor_total / bs;
+    st->f_bfree = g_stor_avail / bs;
+    st->f_bavail = g_stor_avail / bs;
+  }
+  return r;
+}
+
+int fake_statfs(const char *path, struct statfs *st) {
+  int r = orig_statfs != nullptr ? orig_statfs(path, st) : -1;
+  if (r == 0 && g_stor_enable && st != nullptr && isStoragePath(path)) {
+    unsigned long bs = st->f_bsize ? (unsigned long)st->f_bsize : 4096UL;
+    st->f_blocks = g_stor_total / bs;
+    st->f_bfree = g_stor_avail / bs;
+    st->f_bavail = g_stor_avail / bs;
+  }
+  return r;
+}
+
+int fake_statfs64(const char *path, struct statfs64 *st) {
+  int r = orig_statfs64 != nullptr ? orig_statfs64(path, st) : -1;
+  if (r == 0 && g_stor_enable && st != nullptr && isStoragePath(path)) {
+    unsigned long bs = st->f_bsize ? (unsigned long)st->f_bsize : 4096UL;
+    st->f_blocks = g_stor_total / bs;
+    st->f_bfree = g_stor_avail / bs;
+    st->f_bavail = g_stor_avail / bs;
+  }
+  return r;
 }
 
 typedef int (*access_t)(const char *, int);
@@ -784,107 +962,33 @@ readlink_t orig_readlink = nullptr;
 realpath_t orig_realpath = nullptr;
 
 int fake_access(const char *path, int mode) {
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return -1;
-  }
   if (isForceExist(path)) return 0;
   return orig_access != nullptr ? orig_access(path, mode) : -1;
 }
 
 int fake_faccessat(int dirfd, const char *path, int mode, int flags) {
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return -1;
-  }
   if (isForceExist(path)) return 0;
   return orig_faccessat != nullptr ? orig_faccessat(dirfd, path, mode, flags) : -1;
 }
 
 int fake_stat(const char *path, struct stat *buf) {
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return -1;
-  }
   return orig_stat != nullptr ? orig_stat(path, buf) : -1;
 }
 
 int fake_lstat(const char *path, struct stat *buf) {
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return -1;
-  }
   return orig_lstat != nullptr ? orig_lstat(path, buf) : -1;
 }
 
 int fake_fstatat(int dirfd, const char *path, struct stat *buf, int flags) {
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return -1;
-  }
   return orig_fstatat != nullptr ? orig_fstatat(dirfd, path, buf, flags) : -1;
 }
 
 ssize_t fake_readlink(const char *path, char *buf, size_t size) {
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return -1;
-  }
   return orig_readlink != nullptr ? orig_readlink(path, buf, size) : -1;
 }
 
 char *fake_realpath(const char *path, char *resolved) {
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return nullptr;
-  }
   return orig_realpath != nullptr ? orig_realpath(path, resolved) : nullptr;
-}
-
-typedef DIR *(*opendir_t)(const char *);
-typedef struct dirent *(*readdir_t)(DIR *);
-
-opendir_t orig_opendir = nullptr;
-readdir_t orig_readdir = nullptr;
-readdir_t orig_readdir64 = nullptr;
-
-DIR *fake_opendir(const char *path) {
-  if (isHidden(path)) {
-    errno = ENOENT;
-    return nullptr;
-  }
-  DIR *d = orig_opendir != nullptr ? orig_opendir(path) : nullptr;
-  if (d != nullptr && g_enabled && path != nullptr) {
-    pthread_rwlock_wrlock(&g_lock);
-    g_dirs[d] = std::string(path);
-    pthread_rwlock_unlock(&g_lock);
-  }
-  return d;
-}
-
-struct dirent *fake_readdir(DIR *d) {
-  if (orig_readdir == nullptr || d == nullptr) return nullptr;
-  if (!g_enabled) return orig_readdir(d);
-
-  std::string base;
-  bool known = false;
-  pthread_rwlock_rdlock(&g_lock);
-  std::map<DIR *, std::string>::const_iterator it = g_dirs.find(d);
-  if (it != g_dirs.end()) { base = it->second; known = true; }
-  pthread_rwlock_unlock(&g_lock);
-  if (!known || base.empty()) return orig_readdir(d);
-
-  for (int i = 0; i < 64; ++i) {
-    struct dirent *e = orig_readdir(d);
-    if (e == nullptr) return nullptr;
-    if (e->d_name[0] == '\0') return e;
-    std::string full = base;
-    if (full[full.size() - 1] != '/') full += '/';
-    full += e->d_name;
-    if (isHidden(full.c_str())) continue;
-    return e;
-  }
-  return nullptr;
 }
 
 typedef int (*execve_t)(const char *, char *const[], char *const[]);
@@ -901,27 +1005,6 @@ execvp_t orig_execvp = nullptr;
 system_t orig_system = nullptr;
 popen_t orig_popen = nullptr;
 posix_spawn_t orig_posix_spawn = nullptr;
-
-bool cmdHitsHidden(const char *cmd) {
-  if (!g_enabled || cmd == nullptr || *cmd == '\0') return false;
-  std::string s(cmd);
-  pthread_rwlock_rdlock(&g_lock);
-  bool hit = false;
-  for (size_t i = 0; i < g_hide.size() && !hit; ++i) {
-    if (g_hide[i].empty()) continue;
-    hit = s.find(g_hide[i]) != std::string::npos;
-  }
-  pthread_rwlock_unlock(&g_lock);
-  return hit;
-}
-
-bool cmdHitsHiddenArgv(char *const argv[]) {
-  if (argv == nullptr) return false;
-  for (int i = 0; argv[i] != nullptr && i < 64; ++i) {
-    if (cmdHitsHidden(argv[i])) return true;
-  }
-  return false;
-}
 
 bool isKillCmd(const char *file, char *const argv[]) {
   if (!g_enabled || !g_block_exit) return false;
@@ -955,10 +1038,6 @@ bool isKillCmd(const char *file, char *const argv[]) {
 }
 
 int fake_execve(const char *path, char *const argv[], char *const envp[]) {
-  if (isHidden(path) || cmdHitsHiddenArgv(argv)) {
-    errno = ENOENT;
-    return -1;
-  }
   if (g_enabled && g_block_exec) {
     errno = EACCES;
     return -1;
@@ -979,10 +1058,6 @@ int fake_execve(const char *path, char *const argv[], char *const envp[]) {
 }
 
 int fake_execv(const char *path, char *const argv[]) {
-  if (isHidden(path) || cmdHitsHiddenArgv(argv)) {
-    errno = ENOENT;
-    return -1;
-  }
   if (g_enabled && g_block_exec) {
     errno = EACCES;
     return -1;
@@ -1003,10 +1078,6 @@ int fake_execv(const char *path, char *const argv[]) {
 }
 
 int fake_execvp(const char *file, char *const argv[]) {
-  if (cmdHitsHiddenArgv(argv)) {
-    errno = ENOENT;
-    return -1;
-  }
   if (g_enabled && g_block_exec) {
     errno = EACCES;
     return -1;
@@ -1090,7 +1161,6 @@ bool spoofArgv(char *const argv[], std::vector<std::string> &keep,
 }
 
 int fake_system(const char *cmd) {
-  if (cmdHitsHidden(cmd)) return 1;
   if (g_enabled && g_block_exec) return 1;
   if (cmdIsKill(cmd)) {
     LOGW("blocked kill command: %s", cmd);
@@ -1104,7 +1174,7 @@ int fake_system(const char *cmd) {
 }
 
 FILE *fake_popen(const char *cmd, const char *type) {
-  if (cmdHitsHidden(cmd) || (g_enabled && g_block_exec) || cmdIsKill(cmd)) {
+  if ((g_enabled && g_block_exec) || cmdIsKill(cmd)) {
     if (cmdIsKill(cmd)) LOGW("blocked kill command: %s", cmd != nullptr ? cmd : "");
     ScopedBypass bp;
     return orig_popen != nullptr ? orig_popen("true", type) : nullptr;
@@ -1120,10 +1190,6 @@ int fake_posix_spawn(pid_t *pid, const char *path,
                      const posix_spawn_file_actions_t *fa,
                      const posix_spawnattr_t *attr, char *const argv[],
                      char *const envp[]) {
-  if (isHidden(path) || cmdHitsHiddenArgv(argv)) {
-    errno = ENOENT;
-    return -1;
-  }
   if (g_enabled && g_block_exec) {
     errno = EACCES;
     return -1;
@@ -1171,6 +1237,145 @@ ssize_t serveSpoof(int fd, SpoofFile *sf, void *buf, size_t count) {
   }
   pthread_rwlock_unlock(&g_lock);
   return (ssize_t)n;
+}
+
+SpoofFile *spoofOfStream(FILE *fp) {
+  if (fp == nullptr || !g_enabled) return nullptr;
+  pthread_rwlock_rdlock(&g_lock);
+  std::map<FILE *, SpoofFile *>::const_iterator it = g_fspoof.find(fp);
+  SpoofFile *sf = (it != g_fspoof.end()) ? it->second : nullptr;
+  pthread_rwlock_unlock(&g_lock);
+  return sf;
+}
+
+size_t serveSpoofStream(FILE *fp, SpoofFile *sf, char *buf, size_t count) {
+  pthread_rwlock_wrlock(&g_lock);
+  size_t &p = g_fspoof_pos[fp];
+  const std::string &c = sf->content;
+  size_t n = 0;
+  if (p < c.size()) {
+    n = c.size() - p;
+    if (n > count) n = count;
+    memcpy(buf, c.data() + p, n);
+    p += n;
+  }
+  pthread_rwlock_unlock(&g_lock);
+  return n;
+}
+
+typedef size_t (*fread_t)(void *, size_t, size_t, FILE *);
+typedef char *(*fgets_t)(char *, int, FILE *);
+typedef ssize_t (*getline_t)(char **, size_t *, FILE *);
+typedef ssize_t (*getdelim_t)(char **, size_t *, int, FILE *);
+
+fread_t orig_fread = nullptr;
+fgets_t orig_fgets = nullptr;
+getline_t orig_getline = nullptr;
+getdelim_t orig_getdelim = nullptr;
+fread_t orig_fread_unlocked = nullptr;
+fgets_t orig_fgets_unlocked = nullptr;
+
+size_t fake_fread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
+  SpoofFile *sf = spoofOfStream(stream);
+  if (sf == nullptr || ptr == nullptr || size == 0 || nmemb == 0) {
+    return orig_fread != nullptr
+               ? orig_fread(ptr, size, nmemb, stream)
+               : 0;
+  }
+  size_t want = size * nmemb;
+  size_t got = serveSpoofStream(stream, sf, (char *)ptr, want);
+  return got / size;
+}
+
+char *fake_fgets(char *buf, int n, FILE *stream) {
+  SpoofFile *sf = spoofOfStream(stream);
+  if (sf == nullptr || buf == nullptr || n <= 0) {
+    return orig_fgets != nullptr ? orig_fgets(buf, n, stream) : nullptr;
+  }
+  pthread_rwlock_wrlock(&g_lock);
+  size_t &p = g_fspoof_pos[stream];
+  const std::string &c = sf->content;
+  if (p >= c.size()) {
+    pthread_rwlock_unlock(&g_lock);
+    return nullptr;
+  }
+  size_t i = p;
+  while (i < c.size() && c[i] != '\n' && (int)(i - p) < n - 1) ++i;
+  size_t len = i - p;
+  if (i < c.size() && c[i] == '\n' && (int)(i - p) < n - 1) {
+    len = i - p + 1;
+    ++i;
+  }
+  memcpy(buf, c.data() + p, len);
+  buf[len] = '\0';
+  p = i;
+  pthread_rwlock_unlock(&g_lock);
+  return buf;
+}
+
+static ssize_t streamGetDelim(char **lineptr, size_t *n, int delim,
+                              FILE *stream) {
+  SpoofFile *sf = spoofOfStream(stream);
+  if (sf == nullptr) return -2;
+  if (lineptr == nullptr || n == nullptr) return -1;
+  std::string c;
+  size_t p = 0;
+  pthread_rwlock_wrlock(&g_lock);
+  c = sf->content;
+  p = g_fspoof_pos[stream];
+  pthread_rwlock_unlock(&g_lock);
+  if (p >= c.size()) return -1;
+  size_t i = p;
+  while (i < c.size() && c[i] != (char)delim) ++i;
+  size_t len = i - p;
+  if (i < c.size()) ++i;
+
+  if (*lineptr == nullptr || *n < len + 1) {
+    size_t cap = len + 1;
+    char *nb = (char *)realloc(*lineptr, cap);
+    if (nb == nullptr) return -1;
+    *lineptr = nb;
+    *n = cap;
+  }
+  if (len > 0) memcpy(*lineptr, c.data() + p, len);
+  (*lineptr)[len] = '\0';
+  pthread_rwlock_wrlock(&g_lock);
+  g_fspoof_pos[stream] = i;
+  pthread_rwlock_unlock(&g_lock);
+  return (ssize_t)len;
+}
+
+ssize_t fake_getline(char **lineptr, size_t *n, FILE *stream) {
+  ssize_t r = streamGetDelim(lineptr, n, '\n', stream);
+  if (r == -2) return orig_getline != nullptr ? orig_getline(lineptr, n, stream) : -1;
+  return r;
+}
+
+ssize_t fake_getdelim(char **lineptr, size_t *n, int delim, FILE *stream) {
+  ssize_t r = streamGetDelim(lineptr, n, delim, stream);
+  if (r == -2) {
+    return orig_getdelim != nullptr ? orig_getdelim(lineptr, n, delim, stream) : -1;
+  }
+  return r;
+}
+
+size_t fake_fread_unlocked(void *ptr, size_t size, size_t nmemb, FILE *stream) {
+  SpoofFile *sf = spoofOfStream(stream);
+  if (sf == nullptr || ptr == nullptr || size == 0 || nmemb == 0) {
+    return orig_fread_unlocked != nullptr
+               ? orig_fread_unlocked(ptr, size, nmemb, stream)
+               : 0;
+  }
+  size_t got = serveSpoofStream(stream, sf, (char *)ptr, size * nmemb);
+  return got / size;
+}
+
+char *fake_fgets_unlocked(char *buf, int n, FILE *stream) {
+  SpoofFile *sf = spoofOfStream(stream);
+  if (sf == nullptr) {
+    return orig_fgets_unlocked != nullptr ? orig_fgets_unlocked(buf, n, stream) : nullptr;
+  }
+  return fake_fgets(buf, n, stream);
 }
 
 ssize_t fake_read(int fd, void *buf, size_t count) {
@@ -1820,7 +2025,13 @@ int installHooks() {
     if (hookSym(sym, (void *)(fake), (void **)&(orig))) ++n;                    \
   } while (0)
 
-  if (G & GRP_PROP) TRY("__system_property_get", fake_prop_get, orig_prop_get);
+  if (G & GRP_PROP) {
+    TRY("__system_property_get", fake_prop_get, orig_prop_get);
+    TRY("__system_property_find", fake_prop_find, orig_prop_find);
+    TRY("__system_property_read_callback", fake_prop_read_callback,
+        orig_prop_read_callback);
+    TRY("__system_property_read", fake_prop_read, orig_prop_read);
+  }
   if (G & GRP_UNAME) TRY("uname", fake_uname, orig_uname);
   if (G & GRP_TIME) {
     TRY("gettimeofday", fake_gettimeofday, orig_gettimeofday);
@@ -1829,7 +2040,7 @@ int installHooks() {
     TRY("time", fake_time, orig_time);
     TRY("clock", fake_clock, orig_clock);
   }
-  if (G & GRP_FILE) {
+  if ((G & GRP_FILE) || (G & GRP_SENSOR)) {
     TRY("open", fake_open, orig_open);
     TRY("open64", fake_open, orig_open64);
     TRY("openat", fake_openat, orig_openat);
@@ -1845,11 +2056,6 @@ int installHooks() {
     TRY("fstatat", fake_fstatat, orig_fstatat);
     TRY("readlink", fake_readlink, orig_readlink);
     TRY("realpath", fake_realpath, orig_realpath);
-  }
-  if (G & GRP_DIR) {
-    TRY("opendir", fake_opendir, orig_opendir);
-    TRY("readdir", fake_readdir, orig_readdir);
-    TRY("readdir64", fake_readdir, orig_readdir64);
   }
   if (G & GRP_EXEC) {
     TRY("execve", fake_execve, orig_execve);
@@ -1869,6 +2075,18 @@ int installHooks() {
     TRY("abort", fake_abort, orig_abort);
     TRY("kill", fake_kill, orig_kill);
   }
+  if (G & GRP_FILE) {
+    TRY("fread", fake_fread, orig_fread);
+    TRY("fgets", fake_fgets, orig_fgets);
+    TRY("getline", fake_getline, orig_getline);
+    TRY("getdelim", fake_getdelim, orig_getdelim);
+    TRY("fread_unlocked", fake_fread_unlocked, orig_fread_unlocked);
+    TRY("fgets_unlocked", fake_fgets_unlocked, orig_fgets_unlocked);
+    TRY("statvfs", fake_statvfs, orig_statvfs);
+    TRY("statvfs64", fake_statvfs64, orig_statvfs64);
+    TRY("statfs", fake_statfs, orig_statfs);
+    TRY("statfs64", fake_statfs64, orig_statfs64);
+  }
   if (G & GRP_READ) {
     TRY("read", fake_read, orig_read);
     TRY("pread", fake_pread, orig_pread);
@@ -1880,11 +2098,15 @@ int installHooks() {
     TRY("__pread64_chk", fake_pread64_chk, orig_pread64_chk);
   }
   if (G & GRP_MMAP) TRY("mmap", fake_mmap, orig_mmap);
+  if (G & GRP_SENSOR) {
+    TRY("fopen", fake_fopen, orig_fopen);
+  }
 #undef TRY
+
+  g_sensor_block = (G & GRP_SENSOR) != 0;
 
   if (orig_open64 == nullptr) orig_open64 = orig_open;
   if (orig_openat64 == nullptr) orig_openat64 = orig_openat;
-  if (orig_readdir64 == nullptr) orig_readdir64 = orig_readdir;
   if (orig_pread64 == nullptr) orig_pread64 = orig_pread;
   if (orig_pread64_chk == nullptr) orig_pread64_chk = orig_pread_chk;
 
@@ -1910,7 +2132,6 @@ void applyPayload(const char *payload) {
   pthread_rwlock_wrlock(&g_lock);
 
   g_props.clear();
-  g_hide.clear();
   g_exist.clear();
   clearFiles();
   g_kernel.clear();
@@ -1930,6 +2151,9 @@ void applyPayload(const char *payload) {
   g_gpu_memory_mb_cfg = 0;
   g_time_offset_ms = 0;
   g_time_enable = false;
+  g_stor_total = 0;
+  g_stor_avail = 0;
+  g_stor_enable = false;
   g_uptime_enable = false;
   g_block_exec = false;
   g_block_exit = false;
@@ -1938,6 +2162,7 @@ void applyPayload(const char *payload) {
   g_vpn.clear();
   g_vpn_enable = false;
   g_groups = 0;
+  g_sensor_block = false;
 
   std::vector<std::string> lines = split(payload != nullptr ? payload : "", '\n');
   for (size_t i = 0; i < lines.size(); ++i) {
@@ -1996,13 +2221,18 @@ void applyPayload(const char *payload) {
         if (!p.empty()) g_vpn.push_back(p);
       }
       g_vpn_enable = !g_vpn.empty();
+    } else if (line.compare(0, 2, "V\t") == 0) {
+      std::vector<std::string> kv = split(body, '\t');
+      if (kv.size() >= 2) {
+        g_stor_total = strtoull(kv[0].c_str(), nullptr, 10);
+        g_stor_avail = strtoull(kv[1].c_str(), nullptr, 10);
+        g_stor_enable = (g_stor_total > 0);
+      }
     } else if (line.compare(0, 2, "P\t") == 0) {
       std::vector<std::string> kv = split(body, '\t');
       if (!kv.empty() && !kv[0].empty()) {
         g_props[kv[0]] = kv.size() >= 2 ? unescape(kv[1]) : std::string();
       }
-    } else if (line.compare(0, 2, "H\t") == 0) {
-      if (!body.empty()) g_hide.push_back(body);
     } else if (line.compare(0, 2, "S\t") == 0) {
       if (!body.empty()) g_exist.push_back(body);
     } else if (line.compare(0, 2, "C\t") == 0) {
@@ -2021,8 +2251,8 @@ void applyPayload(const char *payload) {
   if (!g_gpu.empty()) refreshGpuBuf();
   g_need_fdtrack = g_anti_detect || !g_files.empty();
 
-  LOGI("config applied: groups=0x%x props=%zu hide=%zu exist=%zu files=%zu gpu=%d vpn=%zu",
-       g_groups, g_props.size(), g_hide.size(), g_exist.size(), g_files.size(),
+  LOGI("config applied: groups=0x%x props=%zu exist=%zu files=%zu gpu=%d vpn=%zu",
+       g_groups, g_props.size(), g_exist.size(), g_files.size(),
        g_gpu.empty() ? 0 : 1, g_vpn.size());
 
   pthread_rwlock_unlock(&g_lock);
@@ -2031,10 +2261,8 @@ void applyPayload(const char *payload) {
 void clearAll() {
   pthread_rwlock_wrlock(&g_lock);
   g_props.clear();
-  g_hide.clear();
   g_exist.clear();
   clearFiles();
-  g_dirs.clear();
   g_kernel.clear();
   g_arch.clear();
   g_gpu.clear();
@@ -2042,13 +2270,19 @@ void clearAll() {
   g_vpn_enable = false;
   g_anti_detect = false;
   g_groups = 0;
+  g_sensor_block = false;
   g_need_fdtrack = false;
   g_path_patches.clear();
   for (size_t i = 0; i < g_patch_pool.size(); ++i) g_patch_pool[i]->clear();
   g_basename_index.clear();
+  pthread_mutex_lock(&g_prop_name_lock);
+  g_prop_name.clear();
+  pthread_mutex_unlock(&g_prop_name_lock);
   g_fdpath.clear();
   g_fdspoof.clear();
   g_fdspoof_pos.clear();
+  g_fspoof.clear();
+  g_fspoof_pos.clear();
   g_time_offset_ms = 0;
   g_time_enable = false;
   g_uptime_enable = false;
@@ -2061,6 +2295,252 @@ void clearAll() {
 }
 
 } // namespace
+
+namespace {
+
+void probeAppend(std::string &out, const char *key, const char *val) {
+  if (val == nullptr) return;
+  out += key;
+  out += '\t';
+  for (const char *p = val; *p; ++p) {
+    if (*p == '\n' || *p == '\t' || *p == '\r') out += ' ';
+    else out += *p;
+  }
+  out += '\n';
+}
+
+void probeProp(std::string &out, const char *key, const char *prop) {
+  char buf[PROP_VALUE_MAX + 1];
+  buf[0] = '\0';
+  if (__system_property_get(prop, buf) > 0) probeAppend(out, key, buf);
+}
+
+std::string probeLine(const std::string &text, const char *prefix) {
+  size_t pos = 0;
+  while (pos < text.size()) {
+    size_t end = text.find('\n', pos);
+    if (end == std::string::npos) end = text.size();
+    std::string line = text.substr(pos, end - pos);
+    if (line.compare(0, strlen(prefix), prefix) == 0) {
+      size_t i = line.find(':');
+      if (i != std::string::npos) {
+        std::string v = line.substr(i + 1);
+        size_t a = v.find_first_not_of(" \t");
+        size_t b = v.find_last_not_of(" \t");
+        if (a == std::string::npos) return std::string();
+        return v.substr(a, b - a + 1);
+      }
+    }
+    pos = end + 1;
+  }
+  return std::string();
+}
+
+static void trimEol(std::string &s) {
+  while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ')) {
+    s.pop_back();
+  }
+  size_t a = s.find_first_not_of(" \t");
+  if (a == std::string::npos) { s.clear(); return; }
+  s = s.substr(a);
+}
+
+int probeCount(const std::string &text, const char *prefix) {
+  int n = 0;
+  size_t pos = 0;
+  while (pos < text.size()) {
+    size_t end = text.find('\n', pos);
+    if (end == std::string::npos) end = text.size();
+    std::string line = text.substr(pos, end - pos);
+    if (line.compare(0, strlen(prefix), prefix) == 0) ++n;
+    pos = end + 1;
+  }
+  return n;
+}
+
+} // namespace
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_github_sunilxsk_lockperm_NativeBridge_nativeProbe(JNIEnv *env, jclass) {
+  std::string out;
+
+  struct utsname u;
+  memset(&u, 0, sizeof(u));
+  if (uname(&u) == 0) {
+    probeAppend(out, "uname.sysname", u.sysname);
+    probeAppend(out, "uname.nodename", u.nodename);
+    probeAppend(out, "uname.release", u.release);
+    probeAppend(out, "uname.version", u.version);
+    probeAppend(out, "uname.machine", u.machine);
+  }
+
+  std::string cpu;
+  if (readWholeFile("/proc/cpuinfo", cpu) && !cpu.empty()) {
+    std::string hw = probeLine(cpu, "Hardware");
+    if (!hw.empty()) probeAppend(out, "cpuinfo.hardware", hw.c_str());
+    char nbuf[32];
+    snprintf(nbuf, sizeof(nbuf), "%d", probeCount(cpu, "processor"));
+    probeAppend(out, "cpuinfo.processors", nbuf);
+    std::string model = probeLine(cpu, "model name");
+    if (!model.empty()) probeAppend(out, "cpuinfo.model", model.c_str());
+  }
+
+  std::string ver;
+  if (readWholeFile("/proc/version", ver) && !ver.empty()) {
+    probeAppend(out, "proc.version", ver.c_str());
+  }
+
+  std::string mem;
+  if (readWholeFile("/proc/meminfo", mem) && !mem.empty()) {
+    std::string total = probeLine(mem, "MemTotal");
+    if (!total.empty()) {
+      size_t sp = total.find(' ');
+      if (sp != std::string::npos) total = total.substr(0, sp);
+      probeAppend(out, "meminfo.total_kb", total.c_str());
+    }
+  }
+
+  std::string soc;
+  if (readWholeFile("/sys/devices/soc0/machine", soc) && !soc.empty()) {
+    std::string v = soc;
+    while (!v.empty() && (v.back() == '\n' || v.back() == '\r')) v.pop_back();
+    probeAppend(out, "soc0.machine", v.c_str());
+  }
+  soc.clear();
+  if (readWholeFile("/sys/devices/soc0/family", soc) && !soc.empty()) {
+    while (!soc.empty() && (soc.back() == '\n' || soc.back() == '\r')) soc.pop_back();
+    probeAppend(out, "soc0.family", soc.c_str());
+  }
+  soc.clear();
+  if (readWholeFile("/sys/devices/soc0/hardware", soc) && !soc.empty()) {
+    while (!soc.empty() && (soc.back() == '\n' || soc.back() == '\r')) soc.pop_back();
+    probeAppend(out, "soc0.hardware", soc.c_str());
+  }
+
+  probeProp(out, "prop.abi", "ro.product.cpu.abi");
+  probeProp(out, "prop.abilist", "ro.product.cpu.abilist");
+  probeProp(out, "prop.hardware", "ro.hardware");
+  probeProp(out, "prop.board_platform", "ro.board.platform");
+  probeProp(out, "prop.soc_model", "ro.soc.model");
+  probeProp(out, "prop.soc_manufacturer", "ro.soc.manufacturer");
+  probeProp(out, "prop.radio", "ro.build.radio");
+  probeProp(out, "prop.baseband", "gsm.version.baseband");
+  probeProp(out, "prop.kernel_version", "ro.kernel.version");
+  probeProp(out, "prop.bootloader", "ro.bootloader");
+  probeProp(out, "prop.serialno", "ro.serialno");
+  probeProp(out, "prop.build_product", "ro.build.product");
+
+  static const char *kExtraProps[] = {
+      "ro.build.id",
+      "ro.build.display.id",
+      "ro.build.version.incremental",
+      "ro.build.version.release",
+      "ro.build.version.sdk",
+      "ro.build.version.security_patch",
+      "ro.build.version.release_or_codename",
+      "ro.build.type",
+      "ro.build.tags",
+      "ro.build.user",
+      "ro.build.host",
+      "ro.build.fingerprint",
+      "ro.build.characteristics",
+      "ro.build.date.utc",
+      "ro.product.manufacturer",
+      "ro.product.brand",
+      "ro.product.model",
+      "ro.product.device",
+      "ro.product.name",
+      "ro.product.board",
+      "ro.product.locale",
+      "ro.product.first_api_level",
+      "ro.system.build.fingerprint",
+      "ro.vendor.build.fingerprint",
+      "ro.odm.build.fingerprint",
+      "ro.product.build.fingerprint",
+      "ro.system_ext.build.fingerprint",
+      "ro.bootimage.build.fingerprint",
+      "ro.boot.hardware",
+      "ro.boot.bootloader",
+      "ro.boot.serialno",
+      "ro.debuggable",
+      "ro.secure",
+      "ro.build.selinux",
+      "ro.adb.secure",
+      "ro.allow.mock.location",
+      "ro.opengles.version",
+      "ro.hardware.egl",
+      "ro.hardware.vulkan",
+      "ro.sf.lcd_density",
+      "ro.config.ringtone",
+      "ro.config.alarm_alert",
+      "ro.config.notification_sound",
+      "dalvik.vm.heapsize",
+      "dalvik.vm.heapstartsize",
+      "dalvik.vm.heapgrowthlimit",
+      "persist.sys.timezone",
+      "persist.sys.locale",
+      "persist.sys.language",
+      "persist.sys.country",
+      "persist.sys.usb.config",
+      "sys.usb.config",
+      "net.bt.name",
+      "gsm.current.phone-type",
+      "ril.serialnumber",
+  };
+  for (size_t i = 0; i < sizeof(kExtraProps) / sizeof(kExtraProps[0]); ++i) {
+    probeProp(out, (std::string("prop.") + kExtraProps[i]).c_str(), kExtraProps[i]);
+  }
+
+  {
+    std::string maxs, mins, curs;
+    for (int i = 0; i < 16; ++i) {
+      char path[160];
+      std::string v;
+      snprintf(path, sizeof(path),
+               "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", i);
+      if (!readWholeFile(path, v) || v.empty()) break;
+      trimEol(v);
+      if (!maxs.empty()) maxs += ",";
+      maxs += v;
+
+      snprintf(path, sizeof(path),
+               "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_min_freq", i);
+      v.clear();
+      if (readWholeFile(path, v) && !v.empty()) {
+        trimEol(v);
+        if (!mins.empty()) mins += ",";
+        mins += v;
+      }
+      snprintf(path, sizeof(path),
+               "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_cur_freq", i);
+      v.clear();
+      if (readWholeFile(path, v) && !v.empty()) {
+        trimEol(v);
+        if (!curs.empty()) curs += ",";
+        curs += v;
+      }
+    }
+    if (!maxs.empty()) probeAppend(out, "cpufreq.max_list", maxs.c_str());
+    if (!mins.empty()) probeAppend(out, "cpufreq.min_list", mins.c_str());
+    if (!curs.empty()) probeAppend(out, "cpufreq.cur_list", curs.c_str());
+  }
+
+  probeAppend(out, "native.abi",
+#if defined(__aarch64__)
+              "arm64-v8a"
+#elif defined(__arm__)
+              "armeabi-v7a"
+#elif defined(__i386__)
+              "x86"
+#elif defined(__x86_64__)
+              "x86_64"
+#else
+              ""
+#endif
+  );
+
+  return env->NewStringUTF(out.c_str());
+}
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_io_github_sunilxsk_lockperm_NativeBridge_applyConfig(JNIEnv *env, jclass,
@@ -2113,8 +2593,6 @@ Java_io_github_sunilxsk_lockperm_NativeBridge_nativeHookCount(JNIEnv *, jclass) 
   if (orig_fstatat) n++;
   if (orig_readlink) n++;
   if (orig_realpath) n++;
-  if (orig_opendir) n++;
-  if (orig_readdir || orig_readdir64) n++;
   if (orig_execve) n++;
   if (orig_execv) n++;
   if (orig_execvp) n++;

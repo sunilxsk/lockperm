@@ -24,27 +24,84 @@ internal class SpecialPermFake(
 ) : HookSupport(module, prefs, classLoader) {
 
     
+    
+
+
+
+
+
+
     private val OP_TO_GROUP: Map<String, String> = mapOf(
+        
         "android:get_usage_stats" to XpConfig.PERM_USAGE_STATS,
         "android:system_alert_window" to XpConfig.PERM_DRAW_OVERLAY,
         "android:write_settings" to XpConfig.PERM_WRITE_SETTINGS,
         "android:request_install_packages" to XpConfig.PERM_INSTALL_UNKNOWN,
         "android:manage_external_storage" to XpConfig.PERM_MANAGE_STORAGE,
         "android:schedule_exact_alarm" to XpConfig.PERM_EXACT_ALARM,
+        "android:use_exact_alarm" to XpConfig.PERM_EXACT_ALARM,
         "android:boot_completed" to XpConfig.PERM_AUTOSTART,
         "android:post_notification" to XpConfig.PERM_NOTIFICATION,
+        "android:access_notifications" to XpConfig.PERM_NOTIFICATION_LISTENER,
+        "android:activate_vpn" to XpConfig.PERM_VPN,
+        "android:manage_media" to XpConfig.PERM_MANAGE_MEDIA,
+
+        
+        "android:read_contacts" to XpConfig.PERM_CONTACTS,
+        "android:write_contacts" to XpConfig.PERM_CONTACTS,
+        "android:get_accounts" to XpConfig.PERM_CONTACTS,
+        "android:read_sms" to XpConfig.PERM_SMS,
+        "android:write_sms" to XpConfig.PERM_SMS,
+        "android:send_sms" to XpConfig.PERM_SMS,
+        "android:receive_sms" to XpConfig.PERM_SMS,
+        "android:read_call_log" to XpConfig.PERM_CALL_LOG,
+        "android:write_call_log" to XpConfig.PERM_CALL_LOG,
+        "android:read_phone_state" to XpConfig.PERM_PHONE,
+        "android:read_phone_numbers" to XpConfig.PERM_PHONE,
+        "android:call_phone" to XpConfig.PERM_PHONE,
+        "android:answer_phone_calls" to XpConfig.PERM_PHONE,
+        "android:add_voicemail" to XpConfig.PERM_PHONE,
+        "android:use_sip" to XpConfig.PERM_PHONE,
+        "android:process_outgoing_calls" to XpConfig.PERM_PHONE,
+        "android:fine_location" to XpConfig.PERM_LOCATION,
+        "android:coarse_location" to XpConfig.PERM_LOCATION,
+        "android:read_calendar" to XpConfig.PERM_CALENDAR,
+        "android:write_calendar" to XpConfig.PERM_CALENDAR,
+        "android:camera" to XpConfig.PERM_CAMERA,
+        "android:record_audio" to XpConfig.PERM_MICROPHONE,
+        "android:body_sensors" to XpConfig.PERM_SENSORS,
+        "android:activity_recognition" to XpConfig.PERM_ACTIVITY,
+        "android:read_external_storage" to XpConfig.PERM_STORAGE,
+        "android:write_external_storage" to XpConfig.PERM_STORAGE,
+        "android:read_media_images" to XpConfig.PERM_STORAGE,
+        "android:read_media_video" to XpConfig.PERM_STORAGE,
+        "android:read_media_audio" to XpConfig.PERM_STORAGE,
+        "android:access_media_location" to XpConfig.PERM_STORAGE,
+        
+        "android:bluetooth_scan" to XpConfig.PERM_NEARBY,
+        "android:bluetooth_connect" to XpConfig.PERM_NEARBY,
+        "android:bluetooth_advertise" to XpConfig.PERM_NEARBY,
+        "android:nearby_wifi_devices" to XpConfig.PERM_NEARBY,
+        "android:uwb_ranging" to XpConfig.PERM_NEARBY,
     )
 
+    
+    private val RUNTIME_OP_TO_GROUP = HashMap<String, String>()
+
     fun install() {
+        buildPermToOp()
         hookAppOps()
         hookOverlay()
         hookInstallUnknown()
         hookManageStorage()
+        hookManageMedia()
         hookExactAlarm()
         hookBatteryOptimization()
         hookVpn()
         hookWriteSettings()
         hookNotification()
+        hookFullScreenIntent()
+        hookNotificationListener()
         hookDeviceAdmin()
         hookSettingsString()
         hookAccessibilityManager()
@@ -67,16 +124,53 @@ internal class SpecialPermFake(
 
     
 
+    
+
+
+
+
+    private val APPOPS_METHODS = setOf(
+        "checkOp", "checkOpNoThrow", "checkOpRawNoThrow",
+        "noteOp", "noteOpNoThrow",
+        "startOp", "startOpNoThrow",
+        "unsafeCheckOp", "unsafeCheckOpNoThrow",
+        "unsafeCheckOpRaw", "unsafeCheckOpRawNoThrow",
+        "startProxyOp", "startProxyOpNoThrow",
+        "noteProxyOp", "noteProxyOpNoThrow",
+    )
+
+    
+
+
+
+
+    private fun buildPermToOp() {
+        val appOps = frameworkCls("android.app.AppOpsManager") ?: return
+        val m = runCatching {
+            appOps.getDeclaredMethod("permissionToOp", String::class.java)
+        }.getOrNull() ?: return
+        runCatching { m.isAccessible = true }
+        
+        val inst = runCatching { appContext()?.getSystemService("appops") }.getOrNull()
+        var n = 0
+        for (g in XpConfig.PERM_GROUPS) {
+            if (g.special) continue
+            for (perm in g.perms) {
+                val op = runCatching { m.invoke(inst, perm) as? String }.getOrNull()
+                    ?: runCatching { m.invoke(null, perm) as? String }.getOrNull()
+                if (!op.isNullOrBlank() && RUNTIME_OP_TO_GROUP[op] == null) {
+                    RUNTIME_OP_TO_GROUP[op] = g.id
+                    n++
+                }
+            }
+        }
+        if (n > 0) logInfo("permissionToOp 解析到 $n 条 AppOp 映射")
+    }
+
     private fun hookAppOps() {
         val appOps = frameworkCls("android.app.AppOpsManager") ?: return
         appOps.declaredMethods
-            .filter { m ->
-                m.name == "checkOp" || m.name == "checkOpNoThrow" ||
-                        m.name == "noteOp" || m.name == "noteOpNoThrow" ||
-                        m.name == "startOp" || m.name == "startOpNoThrow" ||
-                        m.name == "unsafeCheckOp" || m.name == "unsafeCheckOpNoThrow" ||
-                        m.name == "checkOpNoThrowRaw"
-            }
+            .filter { m -> m.name in APPOPS_METHODS }
             .forEach { m ->
                 hookMethod(m) { chain ->
                     val group = opGroupOf(m, chain)
@@ -93,10 +187,12 @@ internal class SpecialPermFake(
     
     private fun opGroupOf(m: Method, chain: io.github.libxposed.api.XposedInterface.Chain): String? {
         val args = chain.args
-        
+
         for (a in args) {
             if (a is String) {
                 OP_TO_GROUP[a]?.let { return it }
+                
+                RUNTIME_OP_TO_GROUP[a]?.let { return it }
             }
         }
         
@@ -163,6 +259,17 @@ internal class SpecialPermFake(
     }
 
     
+
+    
+    private fun hookManageMedia() {
+        runCatching {
+            val ms = frameworkCls("android.provider.MediaStore") ?: return@runCatching
+            val m = ms.getDeclaredMethod("canManageMedia", android.content.Context::class.java)
+            hookMethod(m) { chain ->
+                if (on(XpConfig.PERM_MANAGE_MEDIA)) true else chain.proceed()
+            }
+        }
+    }
 
     private fun hookExactAlarm() {
         runCatching {
@@ -234,6 +341,44 @@ internal class SpecialPermFake(
 
     
 
+    
+    private fun hookNotificationListener() {
+        runCatching {
+            val nm = frameworkCls("android.app.NotificationManager") ?: return@runCatching
+            nm.declaredMethods.filter {
+                it.name == "isNotificationListenerAccessGranted" ||
+                        it.name == "getEnabledNotificationListeners"
+            }.forEach { m ->
+                val forComponent = m.parameterTypes.any { it.name == "android.content.ComponentName" }
+                hookMethod(m) { chain ->
+                    if (!on(XpConfig.PERM_NOTIFICATION_LISTENER)) return@hookMethod chain.proceed()
+                    
+                    if (forComponent) {
+                        val cn = chain.args.filterIsInstance<android.content.ComponentName>()
+                            .firstOrNull()
+                        if (cn?.packageName != XpState.packageName) return@hookMethod chain.proceed()
+                    }
+                    logWarn("noti listener ${m.name} -> 伪装已授权")
+                    if (m.returnType == java.lang.Boolean.TYPE) true else chain.proceed()
+                }
+            }
+        }
+    }
+
+    
+    private fun hookFullScreenIntent() {
+        runCatching {
+            val nm = frameworkCls("android.app.NotificationManager") ?: return@runCatching
+            nm.declaredMethods
+                .filter { it.name == "canUseFullScreenIntent" }
+                .forEach { m ->
+                    hookMethod(m) { chain ->
+                        if (on(XpConfig.PERM_FULL_SCREEN_INTENT)) true else chain.proceed()
+                    }
+                }
+        }
+    }
+
     private fun hookDeviceAdmin() {
         runCatching {
             val dpm = frameworkCls("android.app.admin.DevicePolicyManager") ?: return@runCatching
@@ -299,7 +444,63 @@ internal class SpecialPermFake(
                     if (on(XpConfig.PERM_ACCESSIBILITY)) true else chain.proceed()
                 }
             }
+            
+            am.declaredMethods
+                .filter { it.name == "getEnabledAccessibilityServiceList" }
+                .forEach { m ->
+                    hookMethod(m) { chain ->
+                        if (!on(XpConfig.PERM_ACCESSIBILITY)) return@hookMethod chain.proceed()
+                        val result = chain.proceed()
+                        val list = result as? List<*> ?: return@hookMethod result
+                        val pkg = XpState.packageName
+                        if (pkg.isEmpty()) return@hookMethod result
+                        val has = list.any {
+                            runCatching {
+                                val info = it as? android.accessibilityservice.AccessibilityServiceInfo
+                                info?.resolveInfo?.serviceInfo?.packageName == pkg
+                            }.getOrNull() ?: false
+                        }
+                        if (has) return@hookMethod result
+                        val fake = buildFakeServiceInfo(pkg) ?: return@hookMethod result
+                        logWarn("accessibility service list -> 注入本应用")
+                        ArrayList<Any>(list.filterNotNull()).apply { add(fake) }
+                    }
+                }
         }
+    }
+
+    
+
+
+
+
+
+
+    private fun buildFakeServiceInfo(pkg: String): Any? {
+        val ri = android.content.pm.ResolveInfo().apply {
+            serviceInfo = android.content.pm.ServiceInfo().apply {
+                packageName = pkg
+                name = "$pkg.FakeAccessibilityService"
+            }
+        }
+        val asi = android.accessibilityservice.AccessibilityServiceInfo()
+        val cls = asi.javaClass
+
+        for (fname in listOf("resolveInfo", "mResolveInfo")) {
+            val f = runCatching { cls.getDeclaredField(fname) }.getOrNull() ?: continue
+            runCatching {
+                f.isAccessible = true
+                f.set(asi, ri)
+                return asi
+            }
+        }
+        runCatching {
+            cls.getDeclaredMethod("setResolveInfo", android.content.pm.ResolveInfo::class.java)
+                .apply { isAccessible = true }
+                .invoke(asi, ri)
+            return asi
+        }
+        return null
     }
 
     companion object {
