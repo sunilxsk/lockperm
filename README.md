@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/compileSdk-36-brightgreen" alt="compileSdk">
+  <img src="https://img.shields.io/badge/compileSdk-37-brightgreen" alt="compileSdk">
   <img src="https://img.shields.io/badge/JDK-17%2B-red" alt="JDK">
 
 </p>
