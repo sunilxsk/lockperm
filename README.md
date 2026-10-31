@@ -197,7 +197,7 @@ LockPerm 是一个以**应用为单位**工作的隐私模块：它让目标应�
 - 防护类功能可能会影响目标应用的正常使用，请按需开启。
 - 崩溃日志写在 `/storage/emulated/0/Android/data/{目标包名}/files/` 下。
 - 测试检测会带来额外开销，效果有限，且默认关闭，按需开启。
-- 🚫 请勿对Android系统程序及涉及金融、账号安全、财产等关键场景的应用使用本模块。
+- 🚫 请勿将本模块用于 Android 系统程序，禁止对涉及金融、账号安全、财产等关键场景使用本模块。本模块仅供学习研究与合法合规的技术测试使用，禁止用于规避风控、绕过授权、侵犯隐私、诈骗或其他违法用途；违规使用产生的一切后果由使用者自行承担。
 - 若显示未激活、作用域不同步或未更新，重启本模块尝试解决。
 
 ---
@@ -390,7 +390,7 @@ A floating ball is attached to the top-left corner of the target app's screen. T
 - Protection features may affect the target app's normal use; enable them as needed.
 - Crash logs are written to `/storage/emulated/0/Android/data/{target package name}/files/`.
 - Detection testing adds overhead, has limited effectiveness, is disabled by default, and should be enabled only when needed.
-- 🚫 Do not use this module on Android system apps or apps involving finance, account security, property, or other critical scenarios.
+- 🚫 Do not use this module for Android system programs. Use of this module in critical scenarios involving finance, account security, property, etc. is prohibited. This module is intended solely for learning, research, and lawful and compliant technical testing. It is prohibited to use it to evade risk controls, bypass authorization, infringe on privacy, commit fraud, or for other illegal purposes; all consequences arising from misuse shall be borne by the user.
 - If the module shows inactive, scope is out of sync, or it is not updated, try restarting the module.
 
 ---
