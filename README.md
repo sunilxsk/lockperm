@@ -18,7 +18,7 @@
 <img src="https://img.shields.io/badge/License-AGPL--3.0-orange" alt="License">
 </p>
 <p align="center">
-<img src="https://img.shields.io/badge/Version-5.3.0-blue" alt="Version">
+<img src="https://img.shields.io/badge/Version-5.4.0-blue" alt="Version">
 <img src="https://img.shields.io/badge/compileSdk-37-brightgreen" alt="compileSdk">
 <img src="https://img.shields.io/badge/minSdk-28-brightgreen" alt="minSdk">
 <img src="https://img.shields.io/badge/JDK-17%2B-red" alt="JDK">
